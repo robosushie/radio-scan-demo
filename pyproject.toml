@@ -1,0 +1,25 @@
+[project]
+name = "radio-scan-demo"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Sushant S Samuel",email = "sushant@privue.ai"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pyadi-iio (>=0.0.19,<0.0.20)",
+    "fastapi (>=0.116.1,<0.117.0)",
+    "uvicorn (>=0.35.0,<0.36.0)",
+    "websockets (>=15.0.1,<16.0.0)",
+    "scipy (>=1.11.0,<2.0.0)",
+    "cupy-cuda12x (>=13.5.1,<14.0.0)"
+]
+
+[tool.poetry]
+packages = [{include = "src"}]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

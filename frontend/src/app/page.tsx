@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
+import { WebSocketService } from "@/lib/websocket";
+import { ApiService } from "@/lib/api";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -25,71 +27,40 @@ export default function Home() {
   });
   const [isStreaming, setIsStreaming] = useState(false);
 
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsServiceRef = useRef<WebSocketService | null>(null);
 
   useEffect(() => {
     connectWebSocket();
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
+      if (wsServiceRef.current) {
+        wsServiceRef.current.disconnect();
       }
     };
   }, []);
 
-  const connectWebSocket = () => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      return;
-    }
+  const connectWebSocket = async () => {
+    try {
+      setConnectionStatus("connecting");
 
-    setConnectionStatus("connecting");
+      wsServiceRef.current = new WebSocketService(
+        "ws://localhost:8000/ws/stream",
+        (data: SpectrumData) => {
+          setSpectrumData(data);
+        }
+      );
 
-    const ws = new WebSocket("ws://localhost:8000/ws/stream");
-
-    ws.onopen = () => {
-      console.log("WebSocket connected");
+      await wsServiceRef.current.connect();
       setConnectionStatus("connected");
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data: SpectrumData = JSON.parse(event.data);
-        setSpectrumData(data);
-      } catch (error) {
-        console.error("Error parsing WebSocket data:", error);
-      }
-    };
-
-    ws.onclose = () => {
-      console.log("WebSocket disconnected");
+    } catch (error) {
+      console.error("Failed to connect WebSocket:", error);
       setConnectionStatus("disconnected");
-      setSpectrumData(null);
-      // Attempt to reconnect after 3 seconds
-      setTimeout(connectWebSocket, 3000);
-    };
-
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-      setConnectionStatus("disconnected");
-    };
-
-    wsRef.current = ws;
+    }
   };
 
   const updateScanParams = async () => {
     try {
-      const response = await fetch("http://localhost:8000/set_scan_params", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(scanParams),
-      });
-
-      if (response.ok) {
-        console.log("Scan parameters updated successfully");
-      } else {
-        console.error("Failed to update scan parameters");
-      }
+      await ApiService.setScanParams(scanParams);
+      console.log("Scan parameters updated successfully");
     } catch (error) {
       console.error("Error updating scan parameters:", error);
     }
@@ -97,21 +68,9 @@ export default function Home() {
 
   const toggleStreaming = async () => {
     try {
-      const response = await fetch("http://localhost:8000/toggle_streaming", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ streaming: !isStreaming }),
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        setIsStreaming(result.streaming);
-        console.log(`Streaming ${result.streaming ? "started" : "stopped"}`);
-      } else {
-        console.error("Failed to toggle streaming");
-      }
+      const result = await ApiService.toggleStreaming(!isStreaming);
+      setIsStreaming(result.streaming);
+      console.log(`Streaming ${result.streaming ? "started" : "stopped"}`);
     } catch (error) {
       console.error("Error toggling streaming:", error);
     }

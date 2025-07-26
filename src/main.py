@@ -27,9 +27,9 @@ app.add_middleware(
 # Global configuration
 current_config = {
     "pluto_config": {
-        'sample_rate': int(61.44e6),
-        'rx_rf_bandwidth': int(30e6),
-        'rx_buffer_size': 4096,  # Reduced from 8192 for faster processing
+        'sample_rate': int(30.72e6),
+        'rx_rf_bandwidth': int(24e6),
+        'rx_buffer_size': 2048,  # Reduced from 8192 for faster processing
         'gain_control_mode': 'manual',
         'rx_hardwaregain': 10
     },
@@ -40,7 +40,7 @@ current_config = {
         'dwell_time': 0.01  # Reduced from 0.05s to 0.01s (10ms) for faster scanning
     },
     "fft_config": {
-        'fft_size': 1024,  # Reduced from 2048 for faster FFT computation
+        'fft_size': 512,  # Reduced from 2048 for faster FFT computation
         'min_peak_height': -40.0,
         'peak_threshold_db': 25.0,
         'window_size_divisor': 100,
@@ -208,7 +208,7 @@ async def spectrum_streaming_task():
                         active_connections.pop(ws, None)
             
             # Wait before next scan
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.05)
             
         except Exception as e:
             print(f"Error in streaming task: {e}")

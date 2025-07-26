@@ -300,7 +300,7 @@ def scan_and_stitch_spectrum(pluto_config: Dict, fft_config: Dict, scan_config: 
             arrays['freq_arrays'][i] = freqs
             
             # Brief pause for PlutoSDR
-            time.sleep(scan_config.get('dwell_time', 0.1))
+            # time.sleep(scan_config.get('dwell_time', 0.1))
         
         # Calculate gain corrections across all segments
         gain_corrections = calculate_gain_corrections(arrays['segments'][:num_steps])
@@ -372,7 +372,7 @@ def scan_and_stitch_spectrum_with_connection(pluto: PlutoSDR, fft_config: Dict, 
             arrays['freq_arrays'][i] = freqs
             
             # Brief pause for PlutoSDR
-            time.sleep(scan_config.get('dwell_time', 0.05))
+            # time.sleep(scan_config.get('dwell_time', 0.05))
         
         # Calculate gain corrections across all segments
         gain_corrections = calculate_gain_corrections(arrays['segments'][:num_steps])

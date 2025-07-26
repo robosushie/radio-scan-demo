@@ -1,7 +1,9 @@
 import adi
 import numpy as np
+import json
+import os
 from typing import Optional, Dict, Any
-
+from .constants import CONSTANTS
 
 class PlutoSDR:
     """Helper class for PlutoSDR operations"""
@@ -10,16 +12,19 @@ class PlutoSDR:
         self.sdr: Optional[adi.Pluto] = None
         self.is_connected = False
     
-    def connect(self, uri: str = "ip:192.168.2.1") -> bool:
+    def connect(self, uri: str = None) -> bool:
         """
         Connect to PlutoSDR
         
         Args:
-            uri: Connection URI (default: "ip:192.168.2.1")
+            uri: Connection URI (defaults to constants.json value)
             
         Returns:
             bool: True if connection successful, False otherwise
         """
+        if uri is None:
+            uri = CONSTANTS["pluto"]["connection"]["uri"]
+            
         try:
             self.sdr = adi.Pluto(uri)
             self.is_connected = True

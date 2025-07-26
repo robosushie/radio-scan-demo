@@ -9,8 +9,8 @@ export class WebSocketService {
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        // Use the tunneled backend URL for WebSocket
-        const wsUrl = "ws://localhost:8000/ws/stream";
+        // Use the provided URL for WebSocket
+        const wsUrl = this.url;
         console.log("Connecting to WebSocket:", wsUrl);
 
         this.ws = new WebSocket(wsUrl);

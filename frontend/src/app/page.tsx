@@ -10,19 +10,22 @@ import { SpectrumPlot } from "@/components/SpectrumPlot";
 import { ControlPanel } from "@/components/ControlPanel";
 import { LiveMeasurements } from "@/components/LiveMeasurements";
 import { SpectrumDataInfo } from "@/components/SpectrumDataInfo";
+import { DISTANCE_CONFIG, ENDPOINTS_CONFIG } from "@/lib/constants";
 
 export default function Home() {
   const [spectrumData, setSpectrumData] = useState<SpectrumData | null>(null);
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("disconnected");
-  const [rssiRef, setRssiRef] = useState(-50.0);
+  const [rssiRef, setRssiRef] = useState(DISTANCE_CONFIG.rssi_ref_default);
   const [isStreaming, setIsStreaming] = useState(false);
   const [distanceHistory, setDistanceHistory] = useState<
     { timestamp: number; distance: number }[]
   >([]);
 
   // Input field for RSSI reference
-  const [rssiRefInput, setRssiRefInput] = useState("-50");
+  const [rssiRefInput, setRssiRefInput] = useState(
+    DISTANCE_CONFIG.rssi_ref_default.toString()
+  );
 
   const wsServiceRef = useRef<WebSocketService | null>(null);
 
@@ -39,8 +42,10 @@ export default function Home() {
     if (spectrumData) {
       setDistanceHistory((prev) => {
         const now = Date.now();
-        // Remove points older than 30 seconds
-        const filtered = prev.filter((d) => now - d.timestamp <= 30000);
+        // Remove points older than history_duration ms
+        const filtered = prev.filter(
+          (d) => now - d.timestamp <= DISTANCE_CONFIG.history_duration
+        );
         return [
           ...filtered,
           { timestamp: now, distance: spectrumData.distance },
@@ -52,14 +57,15 @@ export default function Home() {
   const connectWebSocket = async () => {
     try {
       setConnectionStatus("connecting");
+      const wsEndpoint = ENDPOINTS_CONFIG.websocket;
+      const wsUrl = `${wsEndpoint.protocol}://${wsEndpoint.host}:${wsEndpoint.port}${wsEndpoint.path}`;
 
       wsServiceRef.current = new WebSocketService(
-        "ws://localhost:8000/ws/stream",
+        wsUrl,
         (data: SpectrumData) => {
           setSpectrumData(data);
         }
       );
-
       await wsServiceRef.current.connect();
       setConnectionStatus("connected");
     } catch (error) {
@@ -96,17 +102,14 @@ export default function Home() {
       <div className="w-full h-full overflow-x-hidden flex flex-col gap-4">
         {/* Connection Status */}
         <ConnectionStatusComponent status={connectionStatus} />
-
         <div className="bg-neutral-800 rounded-lg p-4">
           <h2 className="text-xl font-semibold">Radio Scan Demo</h2>
         </div>
-
         {/* Spectrum Plot */}
         <SpectrumPlot
           spectrumData={spectrumData}
           connectionStatus={connectionStatus}
         />
-
         <div className="w-full flex gap-4">
           <div className="w-1/2">
             <DistanceMap distance={spectrumData?.distance || 0} />
@@ -120,7 +123,6 @@ export default function Home() {
               toggleStreaming={toggleStreaming}
               isStreaming={isStreaming}
             />
-
             {/* Live Data Display */}
             {spectrumData && (
               <div className="w-full flex flex-col gap-4">
@@ -129,7 +131,6 @@ export default function Home() {
                   spectrumData={spectrumData}
                   distanceHistory={distanceHistory}
                 />
-
                 {/* Spectrum Data Info */}
                 <SpectrumDataInfo spectrumData={spectrumData} />
               </div>

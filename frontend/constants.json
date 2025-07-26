@@ -1,0 +1,66 @@
+{
+  "system": {
+    "app_title": "Radio Scan Demo",
+    "version": "1.0.0",
+    "debug": false,
+    "log_level": "INFO"
+  },
+  "pluto": {
+    "connection": {
+      "uri": "ip:192.168.2.1",
+      "timeout": 5000
+    },
+    "hardware": {
+      "sample_rate": 61440000,
+      "rx_rf_bandwidth": 56000000,
+      "rx_buffer_size": 16384,
+      "gain_control_mode": "slow_attack",
+      "rx_hardwaregain": 10
+    },
+    "spectrum": {
+      "fft_size": 4096,
+      "center_frequency": 155000000
+    }
+  },
+  "map": {
+    "center": {
+      "latitude": 37.7749,
+      "longitude": -122.4194
+    },
+    "zoom": 13
+  },
+  "distance": {
+    "rssi_ref_default": -50.0,
+    "max_distance": 1000,
+    "history_duration": 30000
+  },
+  "endpoints": {
+    "backend": {
+      "host": "localhost",
+      "port": 8000,
+      "protocol": "http"
+    },
+    "websocket": {
+      "host": "localhost",
+      "port": 8000,
+      "protocol": "ws",
+      "path": "/ws/stream"
+    },
+    "frontend": {
+      "host": "localhost",
+      "port": 3000,
+      "protocol": "http"
+    },
+    "api": {
+      "rssi_ref": "/api/rssi-ref",
+      "toggle_streaming": "/api/toggle-streaming",
+      "get_config": "/api/get-config"
+    }
+  },
+  "cors": {
+    "allow_origins": ["http://localhost:3000"],
+    "allow_credentials": true,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"]
+  }
+}

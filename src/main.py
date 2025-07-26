@@ -6,6 +6,7 @@ FastAPI server for PlutoSDR with live FFT data and peak RSSI-based distance.
 
 import asyncio
 import json
+import os
 import numpy as np
 from typing import Dict, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
@@ -13,31 +14,39 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from utils.spectrum import SpectrumProcessor
 from utils.device import connect_to_plutosdr, disconnect_from_plutosdr
+from utils.constants import CONSTANTS
 
 app = FastAPI(title="PlutoSDR Single Frequency Demo", version="1.0.0")
+
+# Load constants from constants.json
+# with open(os.path.join(os.path.dirname(__file__), '../constants.json'), 'r') as f:
+#     CONSTANTS = json.load(f)
 
 # Enable CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=CONSTANTS["cors"]["allow_origins"],
+    allow_credentials=CONSTANTS["cors"]["allow_credentials"],
+    allow_methods=CONSTANTS["cors"]["allow_methods"],
+    allow_headers=CONSTANTS["cors"]["allow_headers"],
 )
 
 # Configuration for single frequency operation
+pluto_hw = CONSTANTS["pluto"]["hardware"]
+pluto_spectrum = CONSTANTS["pluto"]["spectrum"]
 config = {
-    "center_frequency": int(155e6),  # 155 MHz
-    "sample_rate": int(61.44e6),     # 61.44 MSPS
-    "rx_rf_bandwidth": int(56e6),    # 56 MHz bandwidth
-    "rx_buffer_size": 16384,         # 16384 samples
-    "fft_size": 4096,                # 4096 FFT
-    "gain_control_mode": "slow_attack",
-    "rx_hardwaregain": 10
+    "center_frequency": pluto_spectrum["center_frequency"],
+    "sample_rate": pluto_hw["sample_rate"],
+    "rx_rf_bandwidth": pluto_hw["rx_rf_bandwidth"],
+    "rx_buffer_size": pluto_hw["rx_buffer_size"],
+    "fft_size": pluto_spectrum["fft_size"],
+    "gain_control_mode": pluto_hw["gain_control_mode"],
+    "rx_hardwaregain": pluto_hw["rx_hardwaregain"]
 }
 
-# RSSI reference for distance calculation (default -50 dBm)
-RSSI_REF = -50.0
+# RSSI reference for distance calculation (default from constants)
+distance_cfg = CONSTANTS["distance"]
+RSSI_REF = distance_cfg["rssi_ref_default"]
 
 # Global streaming state
 streaming_enabled = False
@@ -90,7 +99,8 @@ async def toggle_streaming(toggle: StreamingToggle):
         
         if streaming_enabled:
             # Connect to PlutoSDR
-            pluto_sdr = connect_to_plutosdr("ip:192.168.2.1")
+            pluto_conn = CONSTANTS["pluto"]["connection"]
+            pluto_sdr = connect_to_plutosdr(pluto_conn["uri"])
             if pluto_sdr:
                 # Configure PlutoSDR for single frequency operation
                 pluto_config = {
@@ -204,4 +214,5 @@ async def websocket_endpoint(websocket: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    backend_cfg = CONSTANTS["endpoints"]["backend"]
+    uvicorn.run(app, host=backend_cfg["host"], port=backend_cfg["port"])

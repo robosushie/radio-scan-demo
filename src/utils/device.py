@@ -1,7 +1,9 @@
 import time
+import json
+import os
 from typing import Optional, Dict, Any, Callable
 from .pluto import PlutoSDR
-
+from .constants import CONSTANTS
 
 def scan_frequency_range(pluto: PlutoSDR, start_freq: int, end_freq: int, 
                         step_freq: int = 1000000, dwell_time: float = 0.1, 
@@ -64,16 +66,19 @@ def scan_frequency_range(pluto: PlutoSDR, start_freq: int, end_freq: int,
     return scan_results
 
 
-def connect_to_plutosdr(uri: str = "ip:192.168.2.1") -> Optional[PlutoSDR]:
+def connect_to_plutosdr(uri: str = None) -> Optional[PlutoSDR]:
     """
     Convenience function to connect to PlutoSDR
     
     Args:
-        uri: Connection URI
+        uri: Connection URI (defaults to constants.json value)
         
     Returns:
         PlutoSDR instance if successful, None otherwise
     """
+    if uri is None:
+        uri = CONSTANTS["pluto"]["connection"]["uri"]
+    
     pluto = PlutoSDR()
     if pluto.connect(uri):
         return pluto

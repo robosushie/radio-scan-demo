@@ -1,12 +1,12 @@
 "use client";
 import React from "react";
-
 import { MapContainer, TileLayer, Circle, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import { MAP_CONFIG } from "@/lib/constants";
 
 // Fix for default markers in react-leaflet
 import L from "leaflet";
-delete L.Icon.Default.prototype._getIconUrl;
+delete (L.Icon.Default as any).prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl:
     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
@@ -21,14 +21,17 @@ interface DistanceMapProps {
 }
 
 const DistanceMap: React.FC<DistanceMapProps> = ({ distance }) => {
-  // Fixed coordinates (San Francisco as example)
-  const fixedPosition: [number, number] = [37.7749, -122.4194];
+  const mapCenter: [number, number] = [
+    MAP_CONFIG.center.latitude,
+    MAP_CONFIG.center.longitude,
+  ];
+  const zoom = MAP_CONFIG.zoom;
 
   return (
     <div className="w-full h-full min-h-96 rounded-lg overflow-hidden shadow-lg">
       <MapContainer
-        center={fixedPosition}
-        zoom={13}
+        center={mapCenter}
+        zoom={zoom}
         style={{ height: "100%", width: "100%" }}
         className="z-0"
       >
@@ -38,17 +41,17 @@ const DistanceMap: React.FC<DistanceMapProps> = ({ distance }) => {
         />
 
         {/* Center marker */}
-        <Marker position={fixedPosition}>
+        <Marker position={mapCenter}>
           <Popup>
             Center Point
             <br />
-            Lat: {fixedPosition[0]}, Lng: {fixedPosition[1]}
+            Lat: {mapCenter[0]}, Lng: {mapCenter[1]}
           </Popup>
         </Marker>
 
         {/* Distance circle */}
         <Circle
-          center={fixedPosition}
+          center={mapCenter}
           radius={distance}
           pathOptions={{
             color: "blue",

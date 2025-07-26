@@ -1,5 +1,7 @@
 "use client";
 
+import { DISTANCE_CONFIG } from "@/lib/constants";
+
 interface ControlPanelProps {
   rssiRefInput: string;
   setRssiRefInput: (value: string) => void;
@@ -32,7 +34,7 @@ export function ControlPanel({
             max="0"
             step="0.1"
             className="w-full px-3 py-2 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="-50"
+            placeholder={DISTANCE_CONFIG.rssi_ref_default.toString()}
           />
           <div className="text-xs text-neutral-400 mt-1">
             Reference RSSI for distance calculation at 1 meter
@@ -49,7 +51,7 @@ export function ControlPanel({
 
         <button
           onClick={toggleStreaming}
-          className={`px-6 py-2 rounded-md font-medium transition-colors ${
+          className={`px-6 py-2 rounded-md font-medium cursor-pointer transition-colors ${
             isStreaming
               ? "bg-red-700 hover:bg-red-900"
               : "bg-green-700 hover:bg-green-900"

@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import type { SpectrumData } from "@/types/spectrum";
+import { DISTANCE_CONFIG } from "@/lib/constants";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -42,7 +43,7 @@ export function LiveMeasurements({
       title: { text: "Distance (m)" },
       color: "#e5e7eb",
       gridcolor: "#525252",
-      range: [0, 700],
+      range: [0, DISTANCE_CONFIG.max_distance],
     },
     plot_bgcolor: "#171717",
     paper_bgcolor: "#262626",

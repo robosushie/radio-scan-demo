@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { WebSocketService } from "@/lib/websocket";
 import { ApiService } from "@/lib/api";
+import DistanceMap from "./map";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -114,7 +115,7 @@ export default function Home() {
     },
     yaxis: {
       type: "linear" as const,
-      range: [-60, 200], // Adjusted range for dBm
+      range: [-60, 100], // Adjusted range for dBm
       title: { text: "Power (dBm)", font: { color: "#e5e7eb" } },
       gridcolor: "#525252",
       gridwidth: 1,
@@ -166,55 +167,9 @@ export default function Home() {
           </span>
         </div>
 
-        {/* Control Panel */}
-        <div className="bg-neutral-800 rounded-lg p-4 flex flex-col gap-4">
-          <h2 className="text-xl font-semibold">
-            Single Frequency Demo - 155 MHz
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                RSSI Reference (dBm)
-              </label>
-              <input
-                type="number"
-                value={rssiRefInput}
-                onChange={(e) => {
-                  setRssiRefInput(e.target.value);
-                }}
-                min="-120"
-                max="0"
-                step="0.1"
-                className="w-full px-3 py-2 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="-50"
-              />
-              <div className="text-xs text-neutral-400 mt-1">
-                Reference RSSI for distance calculation at 1 meter
-              </div>
-            </div>
-            <div className="flex items-end">
-              <button
-                onClick={updateRSSIRef}
-                className="px-6 py-2 bg-blue-700 hover:bg-blue-900 rounded-md font-medium transition-colors cursor-pointer"
-              >
-                Update RSSI Ref
-              </button>
-            </div>
-          </div>
-          <div className="flex gap-4">
-            <button
-              onClick={toggleStreaming}
-              className={`px-6 py-2 rounded-md font-medium transition-colors ${
-                isStreaming
-                  ? "bg-red-700 hover:bg-red-900"
-                  : "bg-green-700 hover:bg-green-900"
-              }`}
-            >
-              {isStreaming ? "Stop Streaming" : "Start Streaming"}
-            </button>
-          </div>
+        <div className="bg-neutral-800 rounded-lg p-4">
+          <h2 className="text-xl font-semibold">Radio Scan Demo</h2>
         </div>
-
         {/* Spectrum Plot */}
         <div className="bg-neutral-800 rounded-lg">
           <div className="h-96 w-full">
@@ -245,62 +200,116 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Live Data Display */}
-        {spectrumData && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Spectrum Data Info */}
-            <div className="bg-neutral-800 rounded-lg p-4">
-              <h3 className="text-lg font-semibold mb-3">Spectrum Data</h3>
-              <div className="grid grid-cols-1 gap-3 text-sm">
-                <div>
-                  <span className="text-neutral-400">FFT Points:</span>
-                  <span className="ml-2 font-mono">
-                    {spectrumData.frequencies.length}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-neutral-400">Frequency Range:</span>
-                  <span className="ml-2 font-mono">
-                    {formatFrequency(Math.min(...spectrumData.frequencies))} -{" "}
-                    {formatFrequency(Math.max(...spectrumData.frequencies))}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-neutral-400">Power Range:</span>
-                  <span className="ml-2 font-mono">
-                    {Math.min(...spectrumData.fft_data).toFixed(1)} to{" "}
-                    {Math.max(...spectrumData.fft_data).toFixed(1)} dBm
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Live Measurements */}
-            <div className="bg-neutral-800 rounded-lg p-4">
-              <h3 className="text-lg font-semibold mb-3">Live Measurements</h3>
-              <div className="grid grid-cols-1 gap-3 text-sm">
-                <div>
-                  <span className="text-neutral-400">Peak RSSI:</span>
-                  <span className="ml-2 font-mono text-lg font-bold text-green-400">
-                    {spectrumData.peak_rssi.toFixed(2)} dBm
-                  </span>
-                </div>
-                <div>
-                  <span className="text-neutral-400">RSSI Reference:</span>
-                  <span className="ml-2 font-mono">
-                    {spectrumData.rssi_ref.toFixed(1)} dBm
-                  </span>
-                </div>
-                <div>
-                  <span className="text-neutral-400">Distance:</span>
-                  <span className="ml-2 font-mono text-lg font-bold text-blue-400">
-                    {spectrumData.distance.toFixed(2)} m
-                  </span>
-                </div>
-              </div>
-            </div>
+        <div className="w-full flex gap-4">
+          <div className="w-1/2">
+            <DistanceMap distance={spectrumData?.distance || 0} />
           </div>
-        )}
+          <div className="w-1/2 flex flex-col gap-4">
+            {/* Control Panel */}
+            <div className="bg-neutral-800 rounded-lg p-4 flex flex-col gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    RSSI Reference (dBm)
+                  </label>
+                  <input
+                    type="number"
+                    value={rssiRefInput}
+                    onChange={(e) => {
+                      setRssiRefInput(e.target.value);
+                    }}
+                    min="-120"
+                    max="0"
+                    step="0.1"
+                    className="w-full px-3 py-2 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="-50"
+                  />
+                  <div className="text-xs text-neutral-400 mt-1">
+                    Reference RSSI for distance calculation at 1 meter
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <button
+                  onClick={updateRSSIRef}
+                  className="px-6 py-2 bg-blue-700 hover:bg-blue-900 rounded-md font-medium transition-colors cursor-pointer"
+                >
+                  Update RSSI Reference
+                </button>
+
+                <button
+                  onClick={toggleStreaming}
+                  className={`px-6 py-2 rounded-md font-medium transition-colors ${
+                    isStreaming
+                      ? "bg-red-700 hover:bg-red-900"
+                      : "bg-green-700 hover:bg-green-900"
+                  }`}
+                >
+                  {isStreaming ? "Stop Streaming" : "Start Streaming"}
+                </button>
+              </div>
+            </div>
+            {/* Live Data Display */}
+            {spectrumData && (
+              <div className="w-full flex flex-col gap-4">
+                {/* Live Measurements */}
+                <div className="bg-neutral-800 rounded-lg p-4">
+                  <h3 className="text-lg font-semibold mb-3">
+                    Live Measurements
+                  </h3>
+                  <div className="grid grid-cols-1 gap-3 text-sm">
+                    <div>
+                      <span className="text-neutral-400">Peak RSSI:</span>
+                      <span className="ml-2 font-mono text-lg font-bold text-green-400">
+                        {spectrumData.peak_rssi.toFixed(2)} dBm
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-neutral-400">RSSI Reference:</span>
+                      <span className="ml-2 font-mono">
+                        {spectrumData.rssi_ref.toFixed(1)} dBm
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-neutral-400">Distance:</span>
+                      <span className="ml-2 font-mono text-lg font-bold text-blue-400">
+                        {spectrumData.distance.toFixed(2)} m
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Spectrum Data Info */}
+                <div className="bg-neutral-800 rounded-lg p-4">
+                  <h3 className="text-lg font-semibold mb-3">Spectrum Data</h3>
+                  <div className="grid grid-cols-1 gap-3 text-sm">
+                    <div>
+                      <span className="text-neutral-400">FFT Points:</span>
+                      <span className="ml-2 font-mono">
+                        {spectrumData.frequencies.length}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-neutral-400">Frequency Range:</span>
+                      <span className="ml-2 font-mono">
+                        {formatFrequency(Math.min(...spectrumData.frequencies))}{" "}
+                        -{" "}
+                        {formatFrequency(Math.max(...spectrumData.frequencies))}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-neutral-400">Power Range:</span>
+                      <span className="ml-2 font-mono">
+                        {Math.min(...spectrumData.fft_data).toFixed(1)} to{" "}
+                        {Math.max(...spectrumData.fft_data).toFixed(1)} dBm
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

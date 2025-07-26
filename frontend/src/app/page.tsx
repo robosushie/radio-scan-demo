@@ -27,6 +27,15 @@ export default function Home() {
   });
   const [isStreaming, setIsStreaming] = useState(false);
 
+  // Separate state for input fields to allow editing
+  const [inputValues, setInputValues] = useState({
+    start_frequency: "1.40",
+    end_frequency: "1.90",
+    step_frequency: "20",
+    gain: "10",
+    dwell_time: "0.01",
+  });
+
   const wsServiceRef = useRef<WebSocketService | null>(null);
 
   useEffect(() => {
@@ -93,8 +102,8 @@ export default function Home() {
         {
           x: spectrumData.frequencies.map((f) => f / 1e9), // Convert to GHz
           y: spectrumData.power_spectrum,
-          type: "scatter",
-          mode: "lines",
+          type: "scatter" as const,
+          mode: "lines" as const,
           line: { color: "#3b82f6", width: 1.5 },
           name: "Power Spectrum",
         },
@@ -109,7 +118,9 @@ export default function Home() {
       color: "#e5e7eb",
     },
     yaxis: {
-      type: "linear",
+      type: "linear" as const,
+      range: [-90, -20], // Fixed y-axis range from -80 to -20 dB
+      title: { text: "Power (dB)", font: { color: "#e5e7eb" } },
       gridcolor: "#525252",
       gridwidth: 1,
       color: "#e5e7eb",
@@ -166,59 +177,74 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">
-                Start Frequency
+                Start Frequency (GHz)
               </label>
               <input
                 type="text"
-                value={formatFrequency(scanParams.start_frequency)}
+                value={inputValues.start_frequency}
                 onChange={(e) => {
-                  const value = parseFloat(e.target.value) * 1e9;
-                  if (!isNaN(value)) {
+                  const value = e.target.value;
+                  setInputValues((prev) => ({
+                    ...prev,
+                    start_frequency: value,
+                  }));
+                  const numValue = parseFloat(value) * 1e9;
+                  if (!isNaN(numValue)) {
                     setScanParams((prev) => ({
                       ...prev,
-                      start_frequency: value,
+                      start_frequency: numValue,
                     }));
                   }
                 }}
                 className="w-full px-3 py-1 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="1.40"
               />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">
-                End Frequency
+                End Frequency (GHz)
               </label>
               <input
                 type="text"
-                value={formatFrequency(scanParams.end_frequency)}
+                value={inputValues.end_frequency}
                 onChange={(e) => {
-                  const value = parseFloat(e.target.value) * 1e9;
-                  if (!isNaN(value)) {
+                  const value = e.target.value;
+                  setInputValues((prev) => ({ ...prev, end_frequency: value }));
+                  const numValue = parseFloat(value) * 1e9;
+                  if (!isNaN(numValue)) {
                     setScanParams((prev) => ({
                       ...prev,
-                      end_frequency: value,
+                      end_frequency: numValue,
                     }));
                   }
                 }}
                 className="w-full px-3 py-1 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="1.90"
               />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">
-                Step Size
+                Step Size (MHz)
               </label>
               <input
                 type="text"
-                value={formatFrequency(scanParams.step_frequency)}
+                value={inputValues.step_frequency}
                 onChange={(e) => {
-                  const value = parseFloat(e.target.value) * 1e6;
-                  if (!isNaN(value)) {
+                  const value = e.target.value;
+                  setInputValues((prev) => ({
+                    ...prev,
+                    step_frequency: value,
+                  }));
+                  const numValue = parseFloat(value) * 1e6;
+                  if (!isNaN(numValue)) {
                     setScanParams((prev) => ({
                       ...prev,
-                      step_frequency: value,
+                      step_frequency: numValue,
                     }));
                   }
                 }}
                 className="w-full px-3 py-1 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="20"
               />
             </div>
             <div>
@@ -227,31 +253,38 @@ export default function Home() {
               </label>
               <input
                 type="number"
-                value={scanParams.gain}
-                onChange={(e) =>
-                  setScanParams((prev) => ({
-                    ...prev,
-                    gain: parseInt(e.target.value),
-                  }))
-                }
+                value={inputValues.gain}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setInputValues((prev) => ({ ...prev, gain: value }));
+                  const numValue = parseInt(value);
+                  if (!isNaN(numValue)) {
+                    setScanParams((prev) => ({ ...prev, gain: numValue }));
+                  }
+                }}
                 min="-10"
                 max="73"
                 className="w-full px-3 py-1 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            <div>
+            {/* <div>
               <label className="block text-sm font-medium mb-1">
                 Dwell Time (s)
               </label>
               <input
                 type="number"
-                value={scanParams.dwell_time}
-                onChange={(e) =>
-                  setScanParams((prev) => ({
-                    ...prev,
-                    dwell_time: parseFloat(e.target.value),
-                  }))
-                }
+                value={inputValues.dwell_time}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setInputValues((prev) => ({ ...prev, dwell_time: value }));
+                  const numValue = parseFloat(value);
+                  if (!isNaN(numValue)) {
+                    setScanParams((prev) => ({
+                      ...prev,
+                      dwell_time: numValue,
+                    }));
+                  }
+                }}
                 min="0"
                 max="5.0"
                 step="0.01"
@@ -262,7 +295,7 @@ export default function Home() {
                   ? "⚠️ No dwell time may cause frequency settling issues"
                   : "Time spent on each frequency step"}
               </div>
-            </div>
+            </div> */}
           </div>
           <div className="flex gap-4">
             <button

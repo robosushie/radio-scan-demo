@@ -9,7 +9,10 @@ const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
 interface SpectrumData {
   frequencies: number[];
-  power_spectrum: number[];
+  fft_data: number[];
+  peak_rssi: number;
+  distance: number;
+  rssi_ref: number;
   timestamp: number;
 }
 
@@ -18,23 +21,11 @@ export default function Home() {
   const [connectionStatus, setConnectionStatus] = useState<
     "disconnected" | "connecting" | "connected"
   >("disconnected");
-  const [scanParams, setScanParams] = useState({
-    start_frequency: 1.4e9,
-    end_frequency: 1.9e9,
-    step_frequency: 20e6,
-    gain: 10,
-    dwell_time: 0.01,
-  });
+  const [rssiRef, setRssiRef] = useState(-50.0);
   const [isStreaming, setIsStreaming] = useState(false);
 
-  // Separate state for input fields to allow editing
-  const [inputValues, setInputValues] = useState({
-    start_frequency: "1.40",
-    end_frequency: "1.90",
-    step_frequency: "20",
-    gain: "10",
-    dwell_time: "0.01",
-  });
+  // Input field for RSSI reference
+  const [rssiRefInput, setRssiRefInput] = useState("-50");
 
   const wsServiceRef = useRef<WebSocketService | null>(null);
 
@@ -66,12 +57,16 @@ export default function Home() {
     }
   };
 
-  const updateScanParams = async () => {
+  const updateRSSIRef = async () => {
     try {
-      await ApiService.setScanParams(scanParams);
-      console.log("Scan parameters updated successfully");
+      const numValue = parseFloat(rssiRefInput);
+      if (!isNaN(numValue)) {
+        await ApiService.setRSSIRef(numValue);
+        setRssiRef(numValue);
+        console.log("RSSI reference updated successfully");
+      }
     } catch (error) {
-      console.error("Error updating scan parameters:", error);
+      console.error("Error updating RSSI reference:", error);
     }
   };
 
@@ -100,27 +95,27 @@ export default function Home() {
   const plotData = spectrumData
     ? [
         {
-          x: spectrumData.frequencies.map((f) => f / 1e9), // Convert to GHz
-          y: spectrumData.power_spectrum,
+          x: spectrumData.frequencies.map((f) => f / 1e6), // Convert to MHz
+          y: spectrumData.fft_data,
           type: "scatter" as const,
           mode: "lines" as const,
           line: { color: "#3b82f6", width: 1.5 },
-          name: "Power Spectrum",
+          name: "FFT Spectrum",
         },
       ]
     : [];
 
   const plotLayout = {
     xaxis: {
-      title: { text: "Frequency (GHz)", font: { color: "#e5e7eb" } },
+      title: { text: "Frequency (MHz)", font: { color: "#e5e7eb" } },
       gridcolor: "#525252",
       gridwidth: 1,
       color: "#e5e7eb",
     },
     yaxis: {
       type: "linear" as const,
-      range: [-90, -20], // Fixed y-axis range from -80 to -20 dB
-      title: { text: "Power (dB)", font: { color: "#e5e7eb" } },
+      range: [-60, 200], // Adjusted range for dBm
+      title: { text: "Power (dBm)", font: { color: "#e5e7eb" } },
       gridcolor: "#525252",
       gridwidth: 1,
       color: "#e5e7eb",
@@ -172,138 +167,41 @@ export default function Home() {
         </div>
 
         {/* Control Panel */}
-        <div className="bg-neutral-800 rounded-lg p-2 flex flex-col gap-4">
-          <h2 className="text-xl font-semibold">Scan Parameters</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div className="bg-neutral-800 rounded-lg p-4 flex flex-col gap-4">
+          <h2 className="text-xl font-semibold">
+            Single Frequency Demo - 155 MHz
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">
-                Start Frequency (GHz)
-              </label>
-              <input
-                type="text"
-                value={inputValues.start_frequency}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setInputValues((prev) => ({
-                    ...prev,
-                    start_frequency: value,
-                  }));
-                  const numValue = parseFloat(value) * 1e9;
-                  if (!isNaN(numValue)) {
-                    setScanParams((prev) => ({
-                      ...prev,
-                      start_frequency: numValue,
-                    }));
-                  }
-                }}
-                className="w-full px-3 py-1 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="1.40"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                End Frequency (GHz)
-              </label>
-              <input
-                type="text"
-                value={inputValues.end_frequency}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setInputValues((prev) => ({ ...prev, end_frequency: value }));
-                  const numValue = parseFloat(value) * 1e9;
-                  if (!isNaN(numValue)) {
-                    setScanParams((prev) => ({
-                      ...prev,
-                      end_frequency: numValue,
-                    }));
-                  }
-                }}
-                className="w-full px-3 py-1 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="1.90"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Step Size (MHz)
-              </label>
-              <input
-                type="text"
-                value={inputValues.step_frequency}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setInputValues((prev) => ({
-                    ...prev,
-                    step_frequency: value,
-                  }));
-                  const numValue = parseFloat(value) * 1e6;
-                  if (!isNaN(numValue)) {
-                    setScanParams((prev) => ({
-                      ...prev,
-                      step_frequency: numValue,
-                    }));
-                  }
-                }}
-                className="w-full px-3 py-1 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="20"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Gain (dB)
+                RSSI Reference (dBm)
               </label>
               <input
                 type="number"
-                value={inputValues.gain}
+                value={rssiRefInput}
                 onChange={(e) => {
-                  const value = e.target.value;
-                  setInputValues((prev) => ({ ...prev, gain: value }));
-                  const numValue = parseInt(value);
-                  if (!isNaN(numValue)) {
-                    setScanParams((prev) => ({ ...prev, gain: numValue }));
-                  }
+                  setRssiRefInput(e.target.value);
                 }}
-                min="-10"
-                max="73"
-                className="w-full px-3 py-1 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            {/* <div>
-              <label className="block text-sm font-medium mb-1">
-                Dwell Time (s)
-              </label>
-              <input
-                type="number"
-                value={inputValues.dwell_time}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setInputValues((prev) => ({ ...prev, dwell_time: value }));
-                  const numValue = parseFloat(value);
-                  if (!isNaN(numValue)) {
-                    setScanParams((prev) => ({
-                      ...prev,
-                      dwell_time: numValue,
-                    }));
-                  }
-                }}
-                min="0"
-                max="5.0"
-                step="0.01"
-                className="w-full px-3 py-1 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                min="-120"
+                max="0"
+                step="0.1"
+                className="w-full px-3 py-2 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="-50"
               />
               <div className="text-xs text-neutral-400 mt-1">
-                {scanParams.dwell_time === 0
-                  ? "⚠️ No dwell time may cause frequency settling issues"
-                  : "Time spent on each frequency step"}
+                Reference RSSI for distance calculation at 1 meter
               </div>
-            </div> */}
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={updateRSSIRef}
+                className="px-6 py-2 bg-blue-700 hover:bg-blue-900 rounded-md font-medium transition-colors cursor-pointer"
+              >
+                Update RSSI Ref
+              </button>
+            </div>
           </div>
           <div className="flex gap-4">
-            <button
-              onClick={updateScanParams}
-              className="px-6 py-2 bg-blue-700 hover:bg-blue-900 rounded-md font-medium transition-colors cursor-pointer"
-            >
-              Update Parameters
-            </button>
             <button
               onClick={toggleStreaming}
               className={`px-6 py-2 rounded-md font-medium transition-colors ${
@@ -347,29 +245,58 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Data Info */}
+        {/* Live Data Display */}
         {spectrumData && (
-          <div className="mt-4 bg-neutral-800 rounded-lg p-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-              <div>
-                <span className="text-neutral-400">Data Points:</span>
-                <span className="ml-2 font-mono">
-                  {spectrumData.frequencies.length}
-                </span>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Spectrum Data Info */}
+            <div className="bg-neutral-800 rounded-lg p-4">
+              <h3 className="text-lg font-semibold mb-3">Spectrum Data</h3>
+              <div className="grid grid-cols-1 gap-3 text-sm">
+                <div>
+                  <span className="text-neutral-400">FFT Points:</span>
+                  <span className="ml-2 font-mono">
+                    {spectrumData.frequencies.length}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-neutral-400">Frequency Range:</span>
+                  <span className="ml-2 font-mono">
+                    {formatFrequency(Math.min(...spectrumData.frequencies))} -{" "}
+                    {formatFrequency(Math.max(...spectrumData.frequencies))}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-neutral-400">Power Range:</span>
+                  <span className="ml-2 font-mono">
+                    {Math.min(...spectrumData.fft_data).toFixed(1)} to{" "}
+                    {Math.max(...spectrumData.fft_data).toFixed(1)} dBm
+                  </span>
+                </div>
               </div>
-              <div>
-                <span className="text-neutral-400">Frequency Range:</span>
-                <span className="ml-2 font-mono">
-                  {formatFrequency(Math.min(...spectrumData.frequencies))} -{" "}
-                  {formatFrequency(Math.max(...spectrumData.frequencies))}
-                </span>
-              </div>
-              <div>
-                <span className="text-neutral-400">Power Range:</span>
-                <span className="ml-2 font-mono">
-                  {Math.min(...spectrumData.power_spectrum).toFixed(1)} to{" "}
-                  {Math.max(...spectrumData.power_spectrum).toFixed(1)} dB
-                </span>
+            </div>
+
+            {/* Live Measurements */}
+            <div className="bg-neutral-800 rounded-lg p-4">
+              <h3 className="text-lg font-semibold mb-3">Live Measurements</h3>
+              <div className="grid grid-cols-1 gap-3 text-sm">
+                <div>
+                  <span className="text-neutral-400">Peak RSSI:</span>
+                  <span className="ml-2 font-mono text-lg font-bold text-green-400">
+                    {spectrumData.peak_rssi.toFixed(2)} dBm
+                  </span>
+                </div>
+                <div>
+                  <span className="text-neutral-400">RSSI Reference:</span>
+                  <span className="ml-2 font-mono">
+                    {spectrumData.rssi_ref.toFixed(1)} dBm
+                  </span>
+                </div>
+                <div>
+                  <span className="text-neutral-400">Distance:</span>
+                  <span className="ml-2 font-mono text-lg font-bold text-blue-400">
+                    {spectrumData.distance.toFixed(2)} m
+                  </span>
+                </div>
               </div>
             </div>
           </div>

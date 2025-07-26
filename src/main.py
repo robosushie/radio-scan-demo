@@ -29,7 +29,7 @@ current_config = {
     "pluto_config": {
         'sample_rate': int(61.44e6),
         'rx_rf_bandwidth': int(30e6),
-        'rx_buffer_size': 8192,
+        'rx_buffer_size': 4096,  # Reduced from 8192 for faster processing
         'gain_control_mode': 'manual',
         'rx_hardwaregain': 10
     },
@@ -37,10 +37,10 @@ current_config = {
         'start_frequency': int(1.4e9),
         'end_frequency': int(1.9e9),
         'step_frequency': int(20e6),
-        'dwell_time': 0.05
+        'dwell_time': 0.01  # Reduced from 0.05s to 0.01s (10ms) for faster scanning
     },
     "fft_config": {
-        'fft_size': 2048,
+        'fft_size': 1024,  # Reduced from 2048 for faster FFT computation
         'min_peak_height': -40.0,
         'peak_threshold_db': 25.0,
         'window_size_divisor': 100,
@@ -62,12 +62,12 @@ class ScanParams(BaseModel):
     end_frequency: int  
     step_frequency: int = int(20e6)
     gain: int = 10
-    dwell_time: float = 0.05
+    dwell_time: float = 0.01  # Reduced from 0.05s to 0.01s for faster scanning
 
 class PlutoParams(BaseModel):
     sample_rate: int = int(61.44e6)
     rx_rf_bandwidth: int = int(30e6)
-    rx_buffer_size: int = 8192
+    rx_buffer_size: int = 4096  # Reduced from 8192 for faster processing
     gain_control_mode: str = 'manual'
     rx_hardwaregain: int = 10
 
@@ -108,6 +108,22 @@ async def set_pluto_params(params: PlutoParams):
             "status": "success", 
             "message": "PlutoSDR parameters updated",
             "config": current_config["pluto_config"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/set_ultra_fast_mode")
+async def set_ultra_fast_mode():
+    """Set ultra-fast mode with minimal dwell time for maximum speed"""
+    try:
+        current_config["scan_config"]["dwell_time"] = 0.0
+        current_config["fft_config"]["fft_size"] = 512  # Even smaller FFT
+        current_config["pluto_config"]["rx_buffer_size"] = 2048  # Smaller buffer
+        
+        return {
+            "status": "success",
+            "message": "Ultra-fast mode enabled (dwell_time=0, fft_size=512, buffer=2048)",
+            "warning": "May cause frequency settling issues and reduced accuracy"
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

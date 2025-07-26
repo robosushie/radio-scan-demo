@@ -5,7 +5,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     const response = await fetch(
-      "https://radio-scan-api.loca.lt/set_scan_params",
+      "http://localhost:8000/set_scan_params",
       {
         method: "POST",
         headers: {

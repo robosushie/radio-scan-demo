@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-FastAPI server for PlutoSDR spectrum scanning with WebSocket streaming.
+Single frequency FFT streaming demo with distance calculation.
+FastAPI server for PlutoSDR with live FFT data and peak RSSI-based distance.
 """
 
 import asyncio
 import json
+import numpy as np
 from typing import Dict, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import numpy as np
-from utils.spectrum import scan_and_stitch_spectrum
-from utils.pluto import PlutoSDR
+from utils.spectrum import SpectrumProcessor
+from utils.device import connect_to_plutosdr, disconnect_from_plutosdr
 
-app = FastAPI(title="PlutoSDR Spectrum Scanner", version="1.0.0")
+app = FastAPI(title="PlutoSDR Single Frequency Demo", version="1.0.0")
 
 # Enable CORS for frontend
 app.add_middleware(
@@ -24,106 +25,49 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global configuration
-current_config = {
-    "pluto_config": {
-        'sample_rate': int(15.36e6),
-        'rx_rf_bandwidth': int(10e6),
-        'rx_buffer_size': 8192,  # Reduced from 8192 for faster processing
-        'gain_control_mode': 'manual',
-        'rx_hardwaregain': 10
-    },
-    "scan_config": {
-        'start_frequency': int(140e6),
-        'end_frequency': int(170e6),
-        'step_frequency': int(15e6),
-        'dwell_time': 0.01  # Reduced from 0.05s to 0.01s (10ms) for faster scanning
-    },
-    "fft_config": {
-        'fft_size': 2048,  # Reduced from 2048 for faster FFT computation
-        'min_peak_height': -40.0,
-        'peak_threshold_db': 25.0,
-        'window_size_divisor': 100,
-        'min_window_size': 5,
-        'max_peaks_per_band': 10
-    }
+# Configuration for single frequency operation
+config = {
+    "center_frequency": int(155e6),  # 155 MHz
+    "sample_rate": int(61.44e6),     # 61.44 MSPS
+    "rx_rf_bandwidth": int(56e6),    # 56 MHz bandwidth
+    "rx_buffer_size": 16384,         # 16384 samples
+    "fft_size": 4096,                # 4096 FFT
+    "gain_control_mode": "slow_attack",
+    "rx_hardwaregain": 10
 }
+
+# RSSI reference for distance calculation (default -50 dBm)
+RSSI_REF = -50.0
 
 # Global streaming state
 streaming_enabled = False
 pluto_sdr = None
+spectrum_processor = None
 
 # WebSocket connections
 active_connections: Dict[WebSocket, bool] = {}
 streaming_task: Optional[asyncio.Task] = None
 
-class ScanParams(BaseModel):
-    start_frequency: int
-    end_frequency: int  
-    step_frequency: int = int(20e6)
-    gain: int = 10
-    dwell_time: float = 0.01  # Reduced from 0.05s to 0.01s for faster scanning
-
-class PlutoParams(BaseModel):
-    sample_rate: int = int(61.44e6)
-    rx_rf_bandwidth: int = int(30e6)
-    rx_buffer_size: int = 4096  # Reduced from 8192 for faster processing
-    gain_control_mode: str = 'manual'
-    rx_hardwaregain: int = 10
+class RSSIReference(BaseModel):
+    rssi_ref: float
 
 class StreamingToggle(BaseModel):
     streaming: bool
 
 @app.get("/")
 async def root():
-    return {"message": "PlutoSDR Spectrum Scanner API"}
+    return {"message": "PlutoSDR Single Frequency Demo API"}
 
-@app.post("/set_scan_params")
-async def set_scan_params(params: ScanParams):
-    """Set scanning parameters"""
+@app.post("/set_rssi_ref")
+async def set_rssi_ref(rssi_ref: RSSIReference):
+    """Set RSSI reference value for distance calculation"""
+    global RSSI_REF
     try:
-        current_config["scan_config"].update({
-            'start_frequency': params.start_frequency,
-            'end_frequency': params.end_frequency,
-            'step_frequency': params.step_frequency,
-            'dwell_time': params.dwell_time
-        })
-        current_config["pluto_config"]["rx_hardwaregain"] = params.gain
-        
+        RSSI_REF = rssi_ref.rssi_ref
         return {
             "status": "success",
-            "message": "Scan parameters updated",
-            "config": current_config["scan_config"]
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.post("/set_pluto_params")
-async def set_pluto_params(params: PlutoParams):
-    """Set PlutoSDR hardware parameters"""
-    try:
-        current_config["pluto_config"].update(params.dict())
-        
-        return {
-            "status": "success", 
-            "message": "PlutoSDR parameters updated",
-            "config": current_config["pluto_config"]
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.post("/set_ultra_fast_mode")
-async def set_ultra_fast_mode():
-    """Set ultra-fast mode with minimal dwell time for maximum speed"""
-    try:
-        current_config["scan_config"]["dwell_time"] = 0.0
-        current_config["fft_config"]["fft_size"] = 512  # Even smaller FFT
-        current_config["pluto_config"]["rx_buffer_size"] = 2048  # Smaller buffer
-        
-        return {
-            "status": "success",
-            "message": "Ultra-fast mode enabled (dwell_time=0, fft_size=512, buffer=2048)",
-            "warning": "May cause frequency settling issues and reduced accuracy"
+            "message": f"RSSI reference updated to {RSSI_REF} dBm",
+            "rssi_ref": RSSI_REF
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -131,22 +75,40 @@ async def set_ultra_fast_mode():
 @app.get("/get_config")
 async def get_config():
     """Get current configuration"""
-    return current_config
+    return {
+        "config": config,
+        "rssi_ref": RSSI_REF
+    }
 
 @app.post("/toggle_streaming")
 async def toggle_streaming(toggle: StreamingToggle):
     """Toggle PlutoSDR streaming on/off"""
-    global streaming_enabled, pluto_sdr, streaming_task
+    global streaming_enabled, pluto_sdr, spectrum_processor, streaming_task
     
     try:
         streaming_enabled = toggle.streaming
         
         if streaming_enabled:
             # Connect to PlutoSDR
-            from utils.device import connect_to_plutosdr
             pluto_sdr = connect_to_plutosdr("ip:192.168.2.1")
             if pluto_sdr:
-                pluto_sdr.set_configs(current_config["pluto_config"])
+                # Configure PlutoSDR for single frequency operation
+                pluto_config = {
+                    'sample_rate': config["sample_rate"],
+                    'rx_rf_bandwidth': config["rx_rf_bandwidth"],
+                    'rx_buffer_size': config["rx_buffer_size"],
+                    'gain_control_mode': config["gain_control_mode"],
+                    'rx_hardwaregain': config["rx_hardwaregain"]
+                }
+                pluto_sdr.set_configs(pluto_config)
+                pluto_sdr.set_frequency(config["center_frequency"])
+                
+                # Initialize spectrum processor
+                spectrum_processor = SpectrumProcessor(
+                    fft_size=config["fft_size"],
+                    sample_rate=config["sample_rate"],
+                    center_frequency=config["center_frequency"]
+                )
                 
                 # Start streaming task if we have connections
                 if active_connections and (streaming_task is None or streaming_task.done()):
@@ -163,9 +125,9 @@ async def toggle_streaming(toggle: StreamingToggle):
             
             # Disconnect from PlutoSDR
             if pluto_sdr:
-                from utils.device import disconnect_from_plutosdr
                 disconnect_from_plutosdr(pluto_sdr)
                 pluto_sdr = None
+                spectrum_processor = None
             return {"status": "success", "streaming": False, "message": "PlutoSDR disconnected and streaming stopped"}
             
     except Exception as e:
@@ -173,46 +135,49 @@ async def toggle_streaming(toggle: StreamingToggle):
         raise HTTPException(status_code=500, detail=str(e))
 
 async def spectrum_streaming_task():
-    """Background task for continuous spectrum scanning and streaming"""
-    global pluto_sdr
+    """Background task for continuous FFT streaming and distance calculation"""
+    global pluto_sdr, spectrum_processor
     
     while active_connections and streaming_enabled:
         try:
-            if pluto_sdr and streaming_enabled:
-                # Perform spectrum scan with existing connection
-                from utils.spectrum import scan_and_stitch_spectrum_with_connection
-                frequencies, power_spectrum = scan_and_stitch_spectrum_with_connection(
-                    pluto_sdr,
-                    current_config["fft_config"], 
-                    current_config["scan_config"]
-                )
+            if pluto_sdr and spectrum_processor and streaming_enabled:
+                # Capture IQ samples
+                iq_samples = pluto_sdr.capture_samples(config["rx_buffer_size"])
                 
-                if len(frequencies) > 0:
-                    # Prepare data for streaming
-                    data = {
-                        "frequencies": frequencies.tolist(),
-                        "power_spectrum": power_spectrum.tolist(),
-                        "timestamp": asyncio.get_event_loop().time()
-                    }
-                    
-                    # Send to all connected clients
-                    disconnected = []
-                    for websocket in list(active_connections.keys()):
-                        try:
-                            await websocket.send_text(json.dumps(data))
-                        except:
-                            disconnected.append(websocket)
-                    
-                    # Remove disconnected clients
-                    for ws in disconnected:
-                        active_connections.pop(ws, None)
+                # Process FFT and get peak RSSI
+                frequencies, fft_data, peak_rssi = spectrum_processor.process_fft(iq_samples)
+                
+                # Calculate distance using the formula: distance = 10^((peak_rssi - RSSI_REF) / 20)
+                distance = 10 ** ((peak_rssi - RSSI_REF) / 20)
+                
+                # Prepare data for streaming
+                data = {
+                    "frequencies": frequencies.tolist(),
+                    "fft_data": fft_data.tolist(),
+                    "peak_rssi": float(peak_rssi),
+                    "distance": float(distance),
+                    "rssi_ref": RSSI_REF,
+                    "timestamp": asyncio.get_event_loop().time()
+                }
+                
+                # Send to all connected clients
+                disconnected = []
+                for websocket in list(active_connections.keys()):
+                    try:
+                        await websocket.send_text(json.dumps(data))
+                    except:
+                        disconnected.append(websocket)
+                
+                # Remove disconnected clients
+                for ws in disconnected:
+                    active_connections.pop(ws, None)
             
-            # Wait before next scan
+            # Wait before next capture (approximately 20 FPS)
             await asyncio.sleep(0.05)
             
         except Exception as e:
             print(f"Error in streaming task: {e}")
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(1.0)
 
 @app.websocket("/ws/stream")
 async def websocket_endpoint(websocket: WebSocket):

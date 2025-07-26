@@ -1,9 +1,11 @@
+"""
+Single frequency spectrum processing for FFT and peak RSSI detection.
+Optimized for real-time streaming with GPU acceleration support.
+"""
+
 import numpy as np
-import time
-from typing import Dict, Tuple, Optional
+from typing import Tuple
 from scipy import signal
-from .pluto import PlutoSDR
-from .device import connect_to_plutosdr, disconnect_from_plutosdr
 
 # Try to import CuPy for GPU acceleration, fallback to CPU
 CUDA_AVAILABLE = False
@@ -18,385 +20,207 @@ try:
     cp.fft.fft(test_array)
     
     CUDA_AVAILABLE = True
-    print("CuPy detected and CUDA working - using GPU acceleration")
+    print("CuPy detected and CUDA working - using GPU acceleration for FFT")
 except Exception as e:
     CUDA_AVAILABLE = False
     print(f"CuPy/CUDA not available ({type(e).__name__}: {e}) - using CPU processing")
-    print("To enable GPU acceleration, install CUDA Toolkit from: https://developer.nvidia.com/cuda-downloads")
 
-
-def initialize_gpu_memory_pools():
-    """Initialize CuPy memory pools for optimal GPU memory management."""
-    if not CUDA_AVAILABLE:
-        return None
-    try:
-        cp.cuda.MemoryPool().set_limit(size=2**30)  # 1GB limit
-        mempool = cp.get_default_memory_pool()
-        mempool.free_all_blocks()
-        return mempool
-    except Exception as e:
-        print(f"Failed to initialize GPU memory pools: {e}")
-        return None
-
-
-def preallocate_arrays(num_steps: int, fft_size: int):
-    """Pre-allocate arrays (GPU or CPU) to avoid allocation overhead during scanning."""
-    if CUDA_AVAILABLE:
-        # GPU arrays
-        arrays = {
-            'iq_buffer': cp.zeros(fft_size, dtype=cp.complex64),
-            'windowed': cp.zeros(fft_size, dtype=cp.complex64),
-            'fft_result': cp.zeros(fft_size, dtype=cp.complex64),
-            'psd': cp.zeros(fft_size, dtype=cp.float32),
-            'segments': cp.zeros((num_steps, fft_size), dtype=cp.float32),
-            'freq_arrays': cp.zeros((num_steps, fft_size), dtype=cp.float32),
-            'window': cp.asarray(signal.windows.hann(fft_size))
-        }
-    else:
-        # CPU arrays
-        arrays = {
-            'iq_buffer': np.zeros(fft_size, dtype=np.complex64),
-            'windowed': np.zeros(fft_size, dtype=np.complex64),
-            'fft_result': np.zeros(fft_size, dtype=np.complex64),
-            'psd': np.zeros(fft_size, dtype=np.float32),
-            'segments': np.zeros((num_steps, fft_size), dtype=np.float32),
-            'freq_arrays': np.zeros((num_steps, fft_size), dtype=np.float32),
-            'window': signal.windows.hann(fft_size)
-        }
-    return arrays
-
-
-def capture_and_process_segment(pluto: PlutoSDR, center_freq: int, arrays: Dict, 
-                               sample_rate: int, fft_size: int) -> Tuple[np.ndarray, np.ndarray]:
-    """Capture IQ samples and process them (GPU or CPU) for a single frequency segment."""
-    # Tune PlutoSDR to center frequency
-    pluto.set_frequency(center_freq)
-    time.sleep(0.01)  # Frequency settling time
+class SpectrumProcessor:
+    """
+    Single frequency spectrum processor for real-time FFT analysis and peak detection.
+    """
     
-    # Capture IQ samples
-    iq_samples = pluto.capture_samples(fft_size)[:fft_size]
-    
-    if CUDA_AVAILABLE:
-        # GPU processing
-        arrays['iq_buffer'][:] = cp.asarray(iq_samples, dtype=cp.complex64)
+    def __init__(self, fft_size: int = 4096, sample_rate: int = int(61.44e6), 
+                 center_frequency: int = int(155e6)):
+        """
+        Initialize the spectrum processor.
         
-        # Apply windowing function on GPU
-        cp.multiply(arrays['iq_buffer'], arrays['window'], out=arrays['windowed'])
+        Args:
+            fft_size: Size of FFT (default 4096)
+            sample_rate: Sampling rate in Hz (default 61.44 MSPS)
+            center_frequency: Center frequency in Hz (default 155 MHz)
+        """
+        self.fft_size = fft_size
+        self.sample_rate = sample_rate
+        self.center_frequency = center_frequency
         
-        # Compute FFT on GPU
-        cp.fft.fft(arrays['windowed'], out=arrays['fft_result'])
-        
-        # Convert to power spectral density
-        cp.abs(arrays['fft_result'], out=arrays['psd'].view(dtype=cp.complex64).real)
-        cp.square(arrays['psd'], out=arrays['psd'])
-        
-        # Normalize and convert to dB
-        arrays['psd'] /= (sample_rate * cp.sum(arrays['window']))
-        cp.maximum(arrays['psd'], 1e-12, out=arrays['psd'])  # Avoid log(0)
-        cp.log10(arrays['psd'], out=arrays['psd'])
-        arrays['psd'] *= 10.0  # Convert to dB
-        
-        # Generate frequency array for this segment
-        freq_start = center_freq - sample_rate // 2
+        # Pre-calculate frequency array
         freq_step = sample_rate / fft_size
-        freqs = cp.arange(fft_size, dtype=cp.float32) * freq_step + freq_start
+        freq_start = center_frequency - sample_rate // 2
+        self.frequencies = np.arange(fft_size) * freq_step + freq_start
         
-        return cp.asnumpy(freqs), cp.asnumpy(arrays['psd'].copy())
-    else:
-        # CPU processing
-        arrays['iq_buffer'][:] = iq_samples
+        # Pre-allocate arrays for processing
+        if CUDA_AVAILABLE:
+            self._init_gpu_arrays()
+        else:
+            self._init_cpu_arrays()
+        
+        print(f"SpectrumProcessor initialized: {fft_size}-point FFT, "
+              f"{sample_rate/1e6:.2f} MSPS, center: {center_frequency/1e6:.2f} MHz")
+    
+    def _init_gpu_arrays(self):
+        """Initialize GPU arrays for processing."""
+        self.window = cp.asarray(signal.windows.hann(self.fft_size))
+        self.iq_buffer = cp.zeros(self.fft_size, dtype=cp.complex64)
+        self.windowed = cp.zeros(self.fft_size, dtype=cp.complex64)
+        self.fft_result = cp.zeros(self.fft_size, dtype=cp.complex64)
+        self.psd = cp.zeros(self.fft_size, dtype=cp.float32)
+        self.frequencies_gpu = cp.asarray(self.frequencies)
+    
+    def _init_cpu_arrays(self):
+        """Initialize CPU arrays for processing."""
+        self.window = signal.windows.hann(self.fft_size)
+        self.iq_buffer = np.zeros(self.fft_size, dtype=np.complex64)
+        self.windowed = np.zeros(self.fft_size, dtype=np.complex64)
+        self.fft_result = np.zeros(self.fft_size, dtype=np.complex64)
+        self.psd = np.zeros(self.fft_size, dtype=np.float32)
+    
+    def process_fft(self, iq_samples: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
+        """
+        Process IQ samples to compute FFT and find peak RSSI.
+        
+        Args:
+            iq_samples: Complex IQ samples array
+            
+        Returns:
+            Tuple of (frequencies, fft_magnitude_db, peak_rssi_dbm)
+        """
+        # Ensure we have exactly fft_size samples
+        if len(iq_samples) > self.fft_size:
+            iq_samples = iq_samples[:self.fft_size]
+        elif len(iq_samples) < self.fft_size:
+            # Pad with zeros if needed
+            padded = np.zeros(self.fft_size, dtype=np.complex64)
+            padded[:len(iq_samples)] = iq_samples
+            iq_samples = padded
+        
+        if CUDA_AVAILABLE:
+            return self._process_fft_gpu(iq_samples)
+        else:
+            return self._process_fft_cpu(iq_samples)
+    
+    def _process_fft_gpu(self, iq_samples: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
+        """GPU-accelerated FFT processing."""
+        # Transfer data to GPU
+        self.iq_buffer[:] = cp.asarray(iq_samples, dtype=cp.complex64)
         
         # Apply windowing function
-        arrays['windowed'][:] = arrays['iq_buffer'] * arrays['window']
+        cp.multiply(self.iq_buffer, self.window, out=self.windowed)
         
         # Compute FFT
-        arrays['fft_result'][:] = np.fft.fft(arrays['windowed'])
+        cp.fft.fft(self.windowed, out=self.fft_result)
         
-        # Convert to power spectral density
-        arrays['psd'][:] = np.abs(arrays['fft_result']) ** 2
+        # Shift zero frequency to center
+        self.fft_result = cp.fft.fftshift(self.fft_result)
         
-        # Normalize and convert to dB
-        arrays['psd'] /= (sample_rate * np.sum(arrays['window']))
-        arrays['psd'] = np.maximum(arrays['psd'], 1e-12)  # Avoid log(0)
-        arrays['psd'] = 10.0 * np.log10(arrays['psd'])  # Convert to dB
+        # Convert to power spectral density (magnitude squared)
+        cp.abs(self.fft_result, out=self.psd.view(dtype=cp.complex64).real)
+        cp.square(self.psd, out=self.psd)
         
-        # Generate frequency array for this segment
-        freq_start = center_freq - sample_rate // 2
-        freq_step = sample_rate / fft_size
-        freqs = np.arange(fft_size, dtype=np.float32) * freq_step + freq_start
+        # Normalize
+        self.psd /= (self.sample_rate * cp.sum(self.window))
         
-        return freqs, arrays['psd'].copy()
-
-
-def find_overlap_regions(freq1: np.ndarray, freq2: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Find overlapping frequency bins between adjacent segments."""
-    if CUDA_AVAILABLE:
-        # GPU operations
-        overlap_mask1 = (freq1 >= freq2[0]) & (freq1 <= freq2[-1])
-        overlap_mask2 = (freq2 >= freq1[0]) & (freq2 <= freq1[-1])
-        return cp.where(overlap_mask1)[0], cp.where(overlap_mask2)[0]
-    else:
-        # CPU operations
-        overlap_mask1 = (freq1 >= freq2[0]) & (freq1 <= freq2[-1])
-        overlap_mask2 = (freq2 >= freq1[0]) & (freq2 <= freq1[-1])
-        return np.where(overlap_mask1)[0], np.where(overlap_mask2)[0]
-
-
-def align_segments_with_correlation(psd1: np.ndarray, psd2: np.ndarray, 
-                                  overlap_idx1: np.ndarray, overlap_idx2: np.ndarray) -> float:
-    """Use cross-correlation to find optimal alignment between segments."""
-    if len(overlap_idx1) == 0 or len(overlap_idx2) == 0:
-        return 0.0
+        # Convert to dBm (assuming 50-ohm impedance)
+        # Power in dBm = 10*log10(P_watts * 1000) where P_watts = V^2/R and R=50
+        cp.maximum(self.psd, 1e-12, out=self.psd)  # Avoid log(0)
+        self.psd = 10.0 * cp.log10(self.psd) + 30 - 10*np.log10(50)  # Convert to dBm
+        
+        # Find peak RSSI
+        peak_idx = cp.argmax(self.psd)
+        peak_rssi = float(self.psd[peak_idx])
+        
+        # Transfer results back to CPU
+        frequencies_out = cp.asnumpy(self.frequencies_gpu)
+        fft_data_out = cp.asnumpy(self.psd.copy())
+        
+        return frequencies_out, fft_data_out, peak_rssi
     
-    overlap1 = psd1[overlap_idx1]
-    overlap2 = psd2[overlap_idx2]
+    def _process_fft_cpu(self, iq_samples: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
+        """CPU FFT processing."""
+        # Copy to buffer
+        self.iq_buffer[:] = iq_samples
+        
+        # Apply windowing function
+        self.windowed[:] = self.iq_buffer * self.window
+        
+        # Compute FFT
+        self.fft_result[:] = np.fft.fft(self.windowed)
+        
+        # Shift zero frequency to center
+        self.fft_result = np.fft.fftshift(self.fft_result)
+        
+        # Convert to power spectral density (magnitude squared)
+        self.psd[:] = np.abs(self.fft_result) ** 2
+        
+        # Normalize
+        self.psd /= (self.sample_rate * np.sum(self.window))
+        
+        # Convert to dBm (assuming 50-ohm impedance)
+        self.psd = np.maximum(self.psd, 1e-12)  # Avoid log(0)
+        self.psd = 10.0 * np.log10(self.psd) + 30 - 10*np.log10(50)  # Convert to dBm
+        
+        # Find peak RSSI
+        peak_idx = np.argmax(self.psd)
+        peak_rssi = float(self.psd[peak_idx])
+        
+        return self.frequencies.copy(), self.psd.copy(), peak_rssi
     
-    if CUDA_AVAILABLE:
-        correlation = cp.correlate(overlap1, overlap2, mode='full')
-        max_idx = cp.argmax(correlation)
-    else:
-        correlation = np.correlate(overlap1, overlap2, mode='full')
-        max_idx = np.argmax(correlation)
+    def get_frequency_range(self) -> Tuple[float, float]:
+        """Get the frequency range of this processor."""
+        return float(self.frequencies[0]), float(self.frequencies[-1])
     
-    offset = max_idx - len(overlap2) + 1
-    return float(offset)
-
-
-def calculate_gain_corrections(segments: np.ndarray) -> np.ndarray:
-    """Calculate gain correction factors using median normalization."""
-    if CUDA_AVAILABLE:
-        segments_gpu = cp.asarray(segments)
-        gain_corrections = cp.ones(len(segments), dtype=cp.float32)
-        reference_level = cp.median(segments_gpu[0])
+    def get_center_frequency(self) -> float:
+        """Get the center frequency."""
+        return float(self.center_frequency)
+    
+    def set_center_frequency(self, center_freq: int):
+        """Update center frequency and recalculate frequency array."""
+        self.center_frequency = center_freq
+        freq_step = self.sample_rate / self.fft_size
+        freq_start = center_freq - self.sample_rate // 2
+        self.frequencies = np.arange(self.fft_size) * freq_step + freq_start
         
-        for i in range(1, len(segments)):
-            current_level = cp.median(segments_gpu[i])
-            gain_corrections[i] = reference_level / current_level
-        
-        return cp.asnumpy(gain_corrections)
-    else:
-        gain_corrections = np.ones(len(segments), dtype=np.float32)
-        reference_level = np.median(segments[0])
-        
-        for i in range(1, len(segments)):
-            current_level = np.median(segments[i])
-            gain_corrections[i] = reference_level / current_level
-        
-        return gain_corrections
-
-
-def stitch_segments_with_overlap_handling(segments: np.ndarray, freq_arrays: np.ndarray, 
-                                        gain_corrections: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Stitch all segments together with overlap handling and gain correction."""
-    if CUDA_AVAILABLE:
-        current_freqs = cp.asarray(freq_arrays[0])
-        current_psd = cp.asarray(segments[0])
-        
-        for i in range(1, len(segments)):
-            next_freqs = cp.asarray(freq_arrays[i])
-            next_psd = cp.asarray(segments[i]) * gain_corrections[i]
-            
-            # Simple non-overlapping concatenation for performance
-            if current_freqs[-1] < next_freqs[0]:
-                current_freqs = cp.concatenate([current_freqs, next_freqs])
-                current_psd = cp.concatenate([current_psd, next_psd])
-            else:
-                # Quick overlap handling - just take the unique parts
-                overlap_start = cp.searchsorted(next_freqs, current_freqs[-1])
-                if overlap_start < len(next_freqs):
-                    current_freqs = cp.concatenate([current_freqs, next_freqs[overlap_start:]])
-                    current_psd = cp.concatenate([current_psd, next_psd[overlap_start:]])
-        
-        return cp.asnumpy(current_freqs), cp.asnumpy(current_psd)
-    else:
-        current_freqs = freq_arrays[0].copy()
-        current_psd = segments[0].copy()
-        
-        for i in range(1, len(segments)):
-            next_freqs = freq_arrays[i]
-            next_psd = segments[i] * gain_corrections[i]
-            
-            # Simple non-overlapping concatenation for performance
-            if current_freqs[-1] < next_freqs[0]:
-                current_freqs = np.concatenate([current_freqs, next_freqs])
-                current_psd = np.concatenate([current_psd, next_psd])
-            else:
-                # Quick overlap handling - just take the unique parts
-                overlap_start = np.searchsorted(next_freqs, current_freqs[-1])
-                if overlap_start < len(next_freqs):
-                    current_freqs = np.concatenate([current_freqs, next_freqs[overlap_start:]])
-                    current_psd = np.concatenate([current_psd, next_psd[overlap_start:]])
-        
-        return current_freqs, current_psd
-
-
-def apply_final_smoothing(psd: np.ndarray, kernel_size: int = 5) -> np.ndarray:
-    """Apply final smoothing filter."""
-    if len(psd) > kernel_size * 2:
         if CUDA_AVAILABLE:
-            kernel = cp.ones(kernel_size) / kernel_size
-            return cp.convolve(psd, kernel, mode='same')
-        else:
-            kernel = np.ones(kernel_size) / kernel_size
-            return np.convolve(psd, kernel, mode='same')
-    return psd
+            self.frequencies_gpu = cp.asarray(self.frequencies)
 
-
-def scan_and_stitch_spectrum(pluto_config: Dict, fft_config: Dict, scan_config: Dict, 
-                           uri: str = "ip:192.168.2.1") -> Tuple[np.ndarray, np.ndarray]:
+# Utility function for distance calculation verification
+def calculate_distance(peak_rssi: float, rssi_ref: float) -> float:
     """
-    Main function to scan entire frequency range and stitch into single spectrum.
+    Calculate distance using the formula: distance = 10^((peak_rssi - rssi_ref) / 20)
     
-    Uses CuPy memory pools and pre-allocated GPU arrays for maximum performance.
-    All intermediate processing stays on GPU to minimize memory transfers.
+    This formula is correct for free-space path loss model where:
+    RSSI = RSSI_ref - 20*log10(distance/distance_ref)
+    
+    Solving for distance:
+    distance = distance_ref * 10^((RSSI_ref - RSSI) / 20)
+    
+    If distance_ref = 1 meter, then:
+    distance = 10^((RSSI_ref - RSSI) / 20)
+    
+    Which can be rewritten as:
+    distance = 10^((peak_rssi - rssi_ref) / 20) when peak_rssi < rssi_ref
     
     Args:
-        pluto_config: PlutoSDR configuration dictionary
-        fft_config: FFT processing configuration dictionary  
-        scan_config: Scanning parameters dictionary
-        uri: PlutoSDR connection URI
+        peak_rssi: Peak RSSI value in dBm
+        rssi_ref: Reference RSSI value in dBm (at 1 meter distance)
         
     Returns:
-        Tuple of (frequencies, power_spectral_density) as numpy arrays
+        Distance in meters (relative to reference distance of 1 meter)
     """
-    # Initialize GPU memory pools
-    mempool = initialize_gpu_memory_pools()
-    
-    # Connect to PlutoSDR using existing device.py functions
-    pluto = connect_to_plutosdr(uri)
-    if not pluto:
-        print("Failed to connect to PlutoSDR")
-        return np.array([]), np.array([])
-    
-    # Configure PlutoSDR
-    if not pluto.set_configs(pluto_config):
-        print("Failed to configure PlutoSDR")
-        disconnect_from_plutosdr(pluto)
-        return np.array([]), np.array([])
-    
-    try:
-        # Calculate parameters
-        start_freq = scan_config['start_frequency']
-        end_freq = scan_config['end_frequency']
-        step_freq = scan_config['step_frequency']
-        num_steps = int((end_freq - start_freq) / step_freq) + 1
-        fft_size = fft_config['fft_size']
-        sample_rate = pluto_config['sample_rate']
-        
-        # Pre-allocate GPU arrays
-        arrays = preallocate_arrays(num_steps, fft_size)
-        
-        
-        # Scan all frequency segments
-        for i, center_freq in enumerate(range(start_freq, end_freq + 1, step_freq)):
-            if i >= num_steps:
-                break
-                
-            
-            freqs, psd = capture_and_process_segment(pluto, center_freq, arrays, sample_rate, fft_size)
-            
-            # Store in pre-allocated arrays
-            arrays['segments'][i] = psd
-            arrays['freq_arrays'][i] = freqs
-            
-            # Brief pause for PlutoSDR
-            # time.sleep(scan_config.get('dwell_time', 0.1))
-        
-        # Calculate gain corrections across all segments
-        gain_corrections = calculate_gain_corrections(arrays['segments'][:num_steps])
-        
-        # Stitch all segments together
-        final_freqs, final_psd = stitch_segments_with_overlap_handling(
-            arrays['segments'][:num_steps],
-            arrays['freq_arrays'][:num_steps],
-            gain_corrections
-        )
-        
-        # Apply final smoothing filter
-        final_psd = apply_final_smoothing(final_psd)
-        
-        # Transfer final result back to CPU if using GPU
-        if CUDA_AVAILABLE:
-            cpu_freqs = cp.asnumpy(final_freqs)
-            cpu_psd = cp.asnumpy(final_psd)
-        else:
-            cpu_freqs = final_freqs
-            cpu_psd = final_psd
-        
-        return cpu_freqs, cpu_psd
-        
-    finally:
-        # Clean up memory and disconnect PlutoSDR
-        if CUDA_AVAILABLE and mempool:
-            mempool.free_all_blocks()
-        disconnect_from_plutosdr(pluto)
+    return 10 ** ((peak_rssi - rssi_ref) / 20)
 
-
-def scan_and_stitch_spectrum_with_connection(pluto: PlutoSDR, fft_config: Dict, scan_config: Dict) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Scan spectrum using existing PlutoSDR connection.
-    Does NOT connect/disconnect - uses provided connection.
+# Test function to verify the implementation
+if __name__ == "__main__":
+    # Test the spectrum processor
+    processor = SpectrumProcessor()
     
-    Args:
-        pluto: Existing connected PlutoSDR instance
-        fft_config: FFT processing configuration dictionary  
-        scan_config: Scanning parameters dictionary
-        
-    Returns:
-        Tuple of (frequencies, power_spectral_density) as numpy arrays
-    """
-    if not pluto or not pluto.is_connected:
-        return np.array([]), np.array([])
+    # Generate test signal
+    t = np.linspace(0, 1024/61.44e6, 1024, endpoint=False)
+    test_signal = np.exp(1j * 2 * np.pi * 155e6 * t) + 0.1 * (np.random.randn(1024) + 1j * np.random.randn(1024))
     
-    try:
-        # Calculate parameters
-        start_freq = scan_config['start_frequency']
-        end_freq = scan_config['end_frequency']
-        step_freq = scan_config['step_frequency']
-        num_steps = int((end_freq - start_freq) / step_freq) + 1
-        fft_size = fft_config['fft_size']
-        sample_rate = pluto.get_sample_rate()
-        
-        # Pre-allocate arrays
-        arrays = preallocate_arrays(num_steps, fft_size)
-        
-        # Scan all frequency segments
-        for i, center_freq in enumerate(range(start_freq, end_freq + 1, step_freq)):
-            if i >= num_steps:
-                break
-                
-            freqs, psd = capture_and_process_segment(pluto, center_freq, arrays, sample_rate, fft_size)
-            
-            # Store in pre-allocated arrays
-            arrays['segments'][i] = psd
-            arrays['freq_arrays'][i] = freqs
-            
-            # Brief pause for PlutoSDR
-            # time.sleep(scan_config.get('dwell_time', 0.05))
-        
-        # Calculate gain corrections across all segments
-        gain_corrections = calculate_gain_corrections(arrays['segments'][:num_steps])
-        
-        # Stitch all segments together
-        final_freqs, final_psd = stitch_segments_with_overlap_handling(
-            arrays['segments'][:num_steps],
-            arrays['freq_arrays'][:num_steps],
-            gain_corrections
-        )
-        
-        # Apply final smoothing filter
-        final_psd = apply_final_smoothing(final_psd)
-        
-        # Transfer final result back to CPU if using GPU
-        if CUDA_AVAILABLE:
-            cpu_freqs = cp.asnumpy(final_freqs) if hasattr(final_freqs, 'get') else final_freqs
-            cpu_psd = cp.asnumpy(final_psd) if hasattr(final_psd, 'get') else final_psd
-        else:
-            cpu_freqs = final_freqs
-            cpu_psd = final_psd
-        
-        return cpu_freqs, cpu_psd
-        
-    except Exception as e:
-        print(f"Error in spectrum scan: {e}")
-        return np.array([]), np.array([])
+    # Process the signal
+    freqs, fft_data, peak_rssi = processor.process_fft(test_signal)
+    
+    print(f"Frequency range: {freqs[0]/1e6:.2f} - {freqs[-1]/1e6:.2f} MHz")
+    print(f"Peak RSSI: {peak_rssi:.2f} dBm")
+    print(f"Distance (ref=-50dBm): {calculate_distance(peak_rssi, -50):.2f} m")

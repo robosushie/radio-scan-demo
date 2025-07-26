@@ -5,7 +5,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     const response = await fetch(
-      "https://radio-scan-api.loca.lt/toggle_streaming",
+      "http://localhost:8000/toggle_streaming",
       {
         method: "POST",
         headers: {

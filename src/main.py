@@ -27,20 +27,20 @@ app.add_middleware(
 # Global configuration
 current_config = {
     "pluto_config": {
-        'sample_rate': int(30.72e6),
-        'rx_rf_bandwidth': int(24e6),
-        'rx_buffer_size': 2048,  # Reduced from 8192 for faster processing
+        'sample_rate': int(15.36e6),
+        'rx_rf_bandwidth': int(10e6),
+        'rx_buffer_size': 8192,  # Reduced from 8192 for faster processing
         'gain_control_mode': 'manual',
         'rx_hardwaregain': 10
     },
     "scan_config": {
-        'start_frequency': int(1.4e9),
-        'end_frequency': int(1.9e9),
-        'step_frequency': int(20e6),
+        'start_frequency': int(140e6),
+        'end_frequency': int(170e6),
+        'step_frequency': int(15e6),
         'dwell_time': 0.01  # Reduced from 0.05s to 0.01s (10ms) for faster scanning
     },
     "fft_config": {
-        'fft_size': 512,  # Reduced from 2048 for faster FFT computation
+        'fft_size': 2048,  # Reduced from 2048 for faster FFT computation
         'min_peak_height': -40.0,
         'peak_threshold_db': 25.0,
         'window_size_divisor': 100,

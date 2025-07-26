@@ -24,6 +24,9 @@ export default function Home() {
   >("disconnected");
   const [rssiRef, setRssiRef] = useState(-50.0);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [distanceHistory, setDistanceHistory] = useState<
+    { timestamp: number; distance: number }[]
+  >([]);
 
   // Input field for RSSI reference
   const [rssiRefInput, setRssiRefInput] = useState("-50");
@@ -38,6 +41,20 @@ export default function Home() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (spectrumData) {
+      setDistanceHistory((prev) => {
+        const now = Date.now();
+        // Remove points older than 30 seconds
+        const filtered = prev.filter((d) => now - d.timestamp <= 30000);
+        return [
+          ...filtered,
+          { timestamp: now, distance: spectrumData.distance },
+        ];
+      });
+    }
+  }, [spectrumData]);
 
   const connectWebSocket = async () => {
     try {
@@ -134,6 +151,44 @@ export default function Home() {
     displayModeBar: true,
     modeBarButtonsToRemove: ["pan2d", "lasso2d", "select2d"],
     displaylogo: false,
+  };
+
+  const distancePlotData = [
+    {
+      x:
+        distanceHistory.length > 0
+          ? distanceHistory.map(
+              (d) => (d.timestamp - distanceHistory[0].timestamp) / 1000
+            )
+          : [],
+      y: distanceHistory.map((d) => d.distance),
+      type: "scatter" as const,
+      mode: "lines+markers" as const,
+      line: { color: "#3b82f6", width: 2 },
+      marker: { color: "#3b82f6" },
+      name: "Distance (m)",
+    },
+  ];
+  const distancePlotLayout = {
+    xaxis: {
+      title: { text: "Time (s)" },
+      color: "#e5e7eb",
+      gridcolor: "#525252",
+      range: [0, 30],
+    },
+    yaxis: {
+      title: { text: "Distance (m)" },
+      color: "#e5e7eb",
+      gridcolor: "#525252",
+      range: [0, 700],
+    },
+    plot_bgcolor: "#171717",
+    paper_bgcolor: "#262626",
+    font: { color: "#e5e7eb" },
+    margin: { l: 40, r: 20, t: 20, b: 40 },
+    showlegend: false,
+    autosize: true,
+    height: 200,
   };
 
   return (
@@ -257,25 +312,34 @@ export default function Home() {
                   <h3 className="text-lg font-semibold mb-3">
                     Live Measurements
                   </h3>
-                  <div className="grid grid-cols-1 gap-3 text-sm">
-                    <div>
+                  <div className="flex justify-around items-center gap-6 text-sm">
+                    <div className="flex items-center gap-2">
                       <span className="text-neutral-400">Peak RSSI:</span>
-                      <span className="ml-2 font-mono text-lg font-bold text-green-400">
+                      <span className="font-mono text-lg font-bold text-green-400">
                         {spectrumData.peak_rssi.toFixed(2)} dBm
                       </span>
                     </div>
-                    <div>
+                    <div className="flex items-center gap-2">
                       <span className="text-neutral-400">RSSI Reference:</span>
-                      <span className="ml-2 font-mono">
+                      <span className="font-mono">
                         {spectrumData.rssi_ref.toFixed(1)} dBm
                       </span>
                     </div>
-                    <div>
+                    <div className="flex items-center gap-2">
                       <span className="text-neutral-400">Distance:</span>
-                      <span className="ml-2 font-mono text-lg font-bold text-blue-400">
+                      <span className="font-mono text-lg font-bold text-blue-400">
                         {spectrumData.distance.toFixed(2)} m
                       </span>
                     </div>
+                  </div>
+                  <div className="mt-4">
+                    <Plot
+                      data={distancePlotData}
+                      layout={distancePlotLayout}
+                      config={{ displayModeBar: false, responsive: true }}
+                      style={{ width: "100%", height: "200px" }}
+                      useResizeHandler={true}
+                    />
                   </div>
                 </div>
 

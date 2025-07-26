@@ -1,103 +1,389 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
+
+const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
+
+interface SpectrumData {
+  frequencies: number[];
+  power_spectrum: number[];
+  timestamp: number;
+}
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [spectrumData, setSpectrumData] = useState<SpectrumData | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<
+    "disconnected" | "connecting" | "connected"
+  >("disconnected");
+  const [scanParams, setScanParams] = useState({
+    start_frequency: 1.4e9,
+    end_frequency: 1.9e9,
+    step_frequency: 20e6,
+    gain: 10,
+    dwell_time: 0.05,
+  });
+  const [isStreaming, setIsStreaming] = useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+  const wsRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    connectWebSocket();
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, []);
+
+  const connectWebSocket = () => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    setConnectionStatus("connecting");
+
+    const ws = new WebSocket("ws://localhost:8000/ws/stream");
+
+    ws.onopen = () => {
+      console.log("WebSocket connected");
+      setConnectionStatus("connected");
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data: SpectrumData = JSON.parse(event.data);
+        setSpectrumData(data);
+      } catch (error) {
+        console.error("Error parsing WebSocket data:", error);
+      }
+    };
+
+    ws.onclose = () => {
+      console.log("WebSocket disconnected");
+      setConnectionStatus("disconnected");
+      setSpectrumData(null);
+      // Attempt to reconnect after 3 seconds
+      setTimeout(connectWebSocket, 3000);
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      setConnectionStatus("disconnected");
+    };
+
+    wsRef.current = ws;
+  };
+
+  const updateScanParams = async () => {
+    try {
+      const response = await fetch("http://localhost:8000/set_scan_params", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(scanParams),
+      });
+
+      if (response.ok) {
+        console.log("Scan parameters updated successfully");
+      } else {
+        console.error("Failed to update scan parameters");
+      }
+    } catch (error) {
+      console.error("Error updating scan parameters:", error);
+    }
+  };
+
+  const toggleStreaming = async () => {
+    try {
+      const response = await fetch("http://localhost:8000/toggle_streaming", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ streaming: !isStreaming }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setIsStreaming(result.streaming);
+        console.log(`Streaming ${result.streaming ? 'started' : 'stopped'}`);
+      } else {
+        console.error("Failed to toggle streaming");
+      }
+    } catch (error) {
+      console.error("Error toggling streaming:", error);
+    }
+  };
+
+  const formatFrequency = (freq: number) => {
+    if (freq >= 1e9) {
+      return `${(freq / 1e9).toFixed(2)} GHz`;
+    } else if (freq >= 1e6) {
+      return `${(freq / 1e6).toFixed(2)} MHz`;
+    } else if (freq >= 1e3) {
+      return `${(freq / 1e3).toFixed(2)} kHz`;
+    } else {
+      return `${freq.toFixed(2)} Hz`;
+    }
+  };
+
+  const plotData = spectrumData
+    ? [
+        {
+          x: spectrumData.frequencies.map((f) => f / 1e9), // Convert to GHz
+          y: spectrumData.power_spectrum,
+          type: "scatter" as const,
+          mode: "lines" as const,
+          line: { color: "#3b82f6", width: 1 },
+          name: "Power Spectrum",
+        },
+      ]
+    : [];
+
+  const plotLayout = {
+    title: {
+      text: "Real-time PlutoSDR Spectrum",
+      font: { size: 20 },
+    },
+    xaxis: {
+      title: "Frequency (GHz)",
+      gridcolor: "#374151",
+      gridwidth: 1,
+    },
+    yaxis: {
+      title: "Power Spectral Density (dB)",
+      type: "linear" as const,
+      gridcolor: "#374151",
+      gridwidth: 1,
+    },
+    plot_bgcolor: "#1f2937",
+    paper_bgcolor: "#111827",
+    font: { color: "#e5e7eb" },
+    margin: { l: 60, r: 20, t: 50, b: 50 },
+    showlegend: false,
+    autosize: true,
+  };
+
+  const plotConfig = {
+    responsive: true,
+    displayModeBar: true,
+    modeBarButtonsToRemove: ["pan2d", "lasso2d", "select2d"],
+    displaylogo: false,
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-900 text-white p-4">
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-3xl font-bold mb-6 text-center">
+          PlutoSDR Spectrum Scanner
+        </h1>
+
+        {/* Connection Status */}
+        <div className="mb-4 text-center">
+          <span
+            className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+              connectionStatus === "connected"
+                ? "bg-green-100 text-green-800"
+                : connectionStatus === "connecting"
+                ? "bg-yellow-100 text-yellow-800"
+                : "bg-red-100 text-red-800"
+            }`}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+            <div
+              className={`w-2 h-2 rounded-full mr-2 ${
+                connectionStatus === "connected"
+                  ? "bg-green-500"
+                  : connectionStatus === "connecting"
+                  ? "bg-yellow-500"
+                  : "bg-red-500"
+              }`}
+            ></div>
+            {connectionStatus === "connected"
+              ? "Connected"
+              : connectionStatus === "connecting"
+              ? "Connecting..."
+              : "Disconnected"}
+          </span>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+        {/* Control Panel */}
+        <div className="bg-gray-800 rounded-lg p-6 mb-6">
+          <h2 className="text-xl font-semibold mb-4">Scan Parameters</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Start Frequency
+              </label>
+              <input
+                type="text"
+                value={formatFrequency(scanParams.start_frequency)}
+                onChange={(e) => {
+                  const value = parseFloat(e.target.value) * 1e9;
+                  if (!isNaN(value)) {
+                    setScanParams((prev) => ({
+                      ...prev,
+                      start_frequency: value,
+                    }));
+                  }
+                }}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                End Frequency
+              </label>
+              <input
+                type="text"
+                value={formatFrequency(scanParams.end_frequency)}
+                onChange={(e) => {
+                  const value = parseFloat(e.target.value) * 1e9;
+                  if (!isNaN(value)) {
+                    setScanParams((prev) => ({
+                      ...prev,
+                      end_frequency: value,
+                    }));
+                  }
+                }}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Step Size
+              </label>
+              <input
+                type="text"
+                value={formatFrequency(scanParams.step_frequency)}
+                onChange={(e) => {
+                  const value = parseFloat(e.target.value) * 1e6;
+                  if (!isNaN(value)) {
+                    setScanParams((prev) => ({
+                      ...prev,
+                      step_frequency: value,
+                    }));
+                  }
+                }}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Gain (dB)
+              </label>
+              <input
+                type="number"
+                value={scanParams.gain}
+                onChange={(e) =>
+                  setScanParams((prev) => ({
+                    ...prev,
+                    gain: parseInt(e.target.value),
+                  }))
+                }
+                min="-10"
+                max="73"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Dwell Time (s)
+              </label>
+              <input
+                type="number"
+                value={scanParams.dwell_time}
+                onChange={(e) =>
+                  setScanParams((prev) => ({
+                    ...prev,
+                    dwell_time: parseFloat(e.target.value),
+                  }))
+                }
+                min="0.1"
+                max="5.0"
+                step="0.1"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          <div className="mt-4 flex gap-4">
+            <button
+              onClick={updateScanParams}
+              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-md font-medium transition-colors"
+            >
+              Update Parameters
+            </button>
+            <button
+              onClick={toggleStreaming}
+              className={`px-6 py-2 rounded-md font-medium transition-colors ${
+                isStreaming
+                  ? "bg-red-600 hover:bg-red-700"
+                  : "bg-green-600 hover:bg-green-700"
+              }`}
+            >
+              {isStreaming ? "Stop Streaming" : "Start Streaming"}
+            </button>
+          </div>
+        </div>
+
+        {/* Spectrum Plot */}
+        <div className="bg-gray-800 rounded-lg p-6">
+          <div className="h-96 w-full">
+            {connectionStatus === "connected" && spectrumData ? (
+              <Plot
+                data={plotData}
+                layout={plotLayout}
+                config={plotConfig}
+                style={{ width: "100%", height: "100%" }}
+                useResizeHandler={true}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full bg-gray-700 rounded-lg">
+                <div className="text-center">
+                  <div className="text-gray-400 text-lg mb-2">
+                    {connectionStatus === "connecting"
+                      ? "Connecting to backend..."
+                      : "No stream from backend"}
+                  </div>
+                  <div className="text-gray-500 text-sm">
+                    {connectionStatus === "disconnected" &&
+                      "Check if the backend server is running"}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Data Info */}
+        {spectrumData && (
+          <div className="mt-4 bg-gray-800 rounded-lg p-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              <div>
+                <span className="text-gray-400">Data Points:</span>
+                <span className="ml-2 font-mono">
+                  {spectrumData.frequencies.length}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-400">Frequency Range:</span>
+                <span className="ml-2 font-mono">
+                  {formatFrequency(Math.min(...spectrumData.frequencies))} -{" "}
+                  {formatFrequency(Math.max(...spectrumData.frequencies))}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-400">Power Range:</span>
+                <span className="ml-2 font-mono">
+                  {Math.min(...spectrumData.power_spectrum).toFixed(1)} to{" "}
+                  {Math.max(...spectrumData.power_spectrum).toFixed(1)} dB
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

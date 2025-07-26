@@ -24,8 +24,8 @@ PLUTO_URI = "ip:192.168.2.1"  # Default PlutoSDR IP address
 
 # PlutoSDR Hardware Configuration
 PLUTO_CONFIG = {
-    'sample_rate': int(15.36e6),      # 30.72 MSPS sample rate for high resolution
-    'rx_rf_bandwidth': int(10e6),     # 50 MHz RF bandwidth
+    'sample_rate': int(64.44e6),      # 30.72 MSPS sample rate for high resolution
+    'rx_rf_bandwidth': int(30e6),     # 50 MHz RF bandwidth
     'rx_buffer_size': 8192,           # Large buffer for FFT analysis
     'gain_control_mode': 'manual',    # Manual gain control
     'rx_hardwaregain': 30             # 30 dB hardware gain for weak signals
@@ -33,16 +33,17 @@ PLUTO_CONFIG = {
 
 # Scan Configuration
 SCAN_CONFIG = {
-    'start_frequency': int(2.4e9),    # 2.4 GHz start frequency
-    'end_frequency': int(5.0e9),      # 5.0 GHz end frequency
-    'step_frequency': int(10e6),      # 50 MHz frequency steps
+    'start_frequency': int(1.4e9),    # 2.4 GHz start frequency
+    'end_frequency': int(1.9e9),      # 5.0 GHz end frequency
+    'step_frequency': int(20e6),      # 50 MHz frequency steps
     'dwell_time': 0.3                 # 300ms per frequency for accuracy
 }
 
 # FFT Peak Detection Configuration
 FFT_CONFIG = {
-    'min_peak_height': -70.0,         # Minimum peak height in dB
-    'peak_threshold_db': 15.0,        # Peak must be 15dB above surrounding
+    'fft_size': 2048,                 # FFT size (must be power of 2: 1024, 2048, 4096, 8192, 16384)
+    'min_peak_height': -40.0,         # Minimum peak height in dB (adjusted for normalized FFT)
+    'peak_threshold_db': 25.0,        # Peak must be 15dB above surrounding
     'window_size_divisor': 100,       # Adaptive window size (spectrum_len // divisor)
     'min_window_size': 5,             # Minimum window size for peak detection
     'max_peaks_per_band': 10          # Maximum peaks to detect per frequency band
@@ -93,11 +94,25 @@ def detect_peaks_in_spectrum(samples: np.ndarray, center_freq: int, sample_rate:
         
     Note:
         Peak detection parameters are taken from FFT_CONFIG constants:
+        - fft_size: FFT size for spectral analysis
         - min_peak_height: Minimum peak height in dB
         - peak_threshold_db: Peak must be this many dB above surrounding
     """
     if len(samples) == 0:
         return []
+    
+    # Use configured FFT size, but don't exceed sample length
+    fft_size = min(FFT_CONFIG['fft_size'], len(samples))
+    
+    # Zero-pad or truncate samples to match FFT size
+    if len(samples) < fft_size:
+        # Zero-pad if we have fewer samples than FFT size
+        padded_samples = np.zeros(fft_size, dtype=samples.dtype)
+        padded_samples[:len(samples)] = samples
+        samples = padded_samples
+    elif len(samples) > fft_size:
+        # Truncate if we have more samples than FFT size
+        samples = samples[:fft_size]
     
     # Compute FFT
     if CUDA_AVAILABLE:
@@ -109,8 +124,15 @@ def detect_peaks_in_spectrum(samples: np.ndarray, center_freq: int, sample_rate:
         # Use scipy for CPU
         fft_result = sp_fft.fft(samples)
     
-    # Compute power spectrum in dB
-    power_spectrum = 20 * np.log10(np.abs(fft_result) + 1e-12)
+    # Compute power spectrum in dB with proper scaling
+    # Normalize FFT result and convert to dB
+    fft_magnitude = np.abs(fft_result)
+    # Normalize by FFT size
+    normalized_magnitude = fft_magnitude / fft_size
+    # Convert to dB with proper reference
+    power_spectrum = 20 * np.log10(normalized_magnitude + 1e-12)
+    # Optional: Add calibration offset for more realistic dB values
+    # power_spectrum -= 60  # Adjust based on your system
     
     # Create frequency array
     freqs = np.fft.fftfreq(len(samples), 1/sample_rate)
@@ -314,7 +336,10 @@ def main():
         print(f"Dwell time: {SCAN_CONFIG['dwell_time']*1000:.0f} ms")
         
         # Display FFT configuration
+        current_sample_rate = pluto.get_sample_rate()
         print(f"\nFFT Peak Detection:")
+        print(f"FFT size: {FFT_CONFIG['fft_size']} points")
+        print(f"Frequency resolution: {current_sample_rate/FFT_CONFIG['fft_size']/1e3:.1f} kHz")
         print(f"Min peak height: {FFT_CONFIG['min_peak_height']} dB")
         print(f"Peak threshold: {FFT_CONFIG['peak_threshold_db']} dB above surrounding")
         print(f"Max peaks per band: {FFT_CONFIG['max_peaks_per_band']}")

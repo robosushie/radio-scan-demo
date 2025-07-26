@@ -58,10 +58,19 @@ class PlutoSDR:
             return False
         
         try:
+            # Map common parameter names to actual PlutoSDR attributes
+            param_mapping = {
+                'gain_control_mode': 'gain_control_mode_chan0',
+                'rx_hardwaregain': 'rx_hardwaregain_chan0'
+            }
+            
             for key, value in configs.items():
-                if hasattr(self.sdr, key):
-                    setattr(self.sdr, key, value)
-                    print(f"Set {key}: {value}")
+                # Use mapped parameter name if available
+                actual_key = param_mapping.get(key, key)
+                
+                if hasattr(self.sdr, actual_key):
+                    setattr(self.sdr, actual_key, value)
+                    print(f"Set {actual_key}: {value}")
                 else:
                     print(f"Warning: Unknown configuration parameter: {key}")
             return True
@@ -87,10 +96,10 @@ class PlutoSDR:
         try:
             if is_tx:
                 self.sdr.tx_lo = frequency_hz
-                print(f"TX frequency set to: {frequency_hz} Hz")
+                # print(f"TX frequency set to: {frequency_hz} Hz")
             else:
                 self.sdr.rx_lo = frequency_hz
-                print(f"RX frequency set to: {frequency_hz} Hz")
+                # print(f"RX frequency set to: {frequency_hz} Hz")
             return True
         except Exception as e:
             print(f"Error setting frequency: {e}")

@@ -21,7 +21,7 @@ export default function Home() {
     end_frequency: 1.9e9,
     step_frequency: 20e6,
     gain: 10,
-    dwell_time: 0.05,
+    dwell_time: 0.01,
   });
   const [isStreaming, setIsStreaming] = useState(false);
 
@@ -108,7 +108,7 @@ export default function Home() {
       if (response.ok) {
         const result = await response.json();
         setIsStreaming(result.streaming);
-        console.log(`Streaming ${result.streaming ? 'started' : 'stopped'}`);
+        console.log(`Streaming ${result.streaming ? "started" : "stopped"}`);
       } else {
         console.error("Failed to toggle streaming");
       }
@@ -134,34 +134,31 @@ export default function Home() {
         {
           x: spectrumData.frequencies.map((f) => f / 1e9), // Convert to GHz
           y: spectrumData.power_spectrum,
-          type: "scatter" as const,
-          mode: "lines" as const,
-          line: { color: "#3b82f6", width: 1 },
+          type: "scatter",
+          mode: "lines",
+          line: { color: "#3b82f6", width: 1.5 },
           name: "Power Spectrum",
         },
       ]
     : [];
 
   const plotLayout = {
-    title: {
-      text: "Real-time PlutoSDR Spectrum",
-      font: { size: 20 },
-    },
     xaxis: {
-      title: "Frequency (GHz)",
-      gridcolor: "#374151",
+      title: { text: "Frequency (GHz)", font: { color: "#e5e7eb" } },
+      gridcolor: "#525252",
       gridwidth: 1,
+      color: "#e5e7eb",
     },
     yaxis: {
-      title: "Power Spectral Density (dB)",
-      type: "linear" as const,
-      gridcolor: "#374151",
+      type: "linear",
+      gridcolor: "#525252",
       gridwidth: 1,
+      color: "#e5e7eb",
     },
-    plot_bgcolor: "#1f2937",
-    paper_bgcolor: "#111827",
+    plot_bgcolor: "#171717", //"#262626", // neutral-800
+    paper_bgcolor: "#262626", //"#171717", // neutral-900
     font: { color: "#e5e7eb" },
-    margin: { l: 60, r: 20, t: 50, b: 50 },
+    margin: { l: 25, r: 25, t: 25, b: 25 },
     showlegend: false,
     autosize: true,
   };
@@ -174,14 +171,10 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-4">
-      <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold mb-6 text-center">
-          PlutoSDR Spectrum Scanner
-        </h1>
-
+    <div className="min-h-screen w-screen bg-neutral-900 text-white p-4">
+      <div className="w-full h-full overflow-x-hidden flex flex-col gap-4">
         {/* Connection Status */}
-        <div className="mb-4 text-center">
+        <div className=" absolute flex w-full justify-center text-center">
           <span
             className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
               connectionStatus === "connected"
@@ -209,11 +202,11 @@ export default function Home() {
         </div>
 
         {/* Control Panel */}
-        <div className="bg-gray-800 rounded-lg p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">Scan Parameters</h2>
+        <div className="bg-neutral-800 rounded-lg p-2 flex flex-col gap-4">
+          <h2 className="text-xl font-semibold">Scan Parameters</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-2">
+              <label className="block text-sm font-medium mb-1">
                 Start Frequency
               </label>
               <input
@@ -228,11 +221,11 @@ export default function Home() {
                     }));
                   }
                 }}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-1 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">
+              <label className="block text-sm font-medium mb-1">
                 End Frequency
               </label>
               <input
@@ -247,11 +240,11 @@ export default function Home() {
                     }));
                   }
                 }}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-1 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">
+              <label className="block text-sm font-medium mb-1">
                 Step Size
               </label>
               <input
@@ -266,11 +259,11 @@ export default function Home() {
                     }));
                   }
                 }}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-1 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">
+              <label className="block text-sm font-medium mb-1">
                 Gain (dB)
               </label>
               <input
@@ -284,11 +277,11 @@ export default function Home() {
                 }
                 min="-10"
                 max="73"
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-1 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">
+              <label className="block text-sm font-medium mb-1">
                 Dwell Time (s)
               </label>
               <input
@@ -300,17 +293,22 @@ export default function Home() {
                     dwell_time: parseFloat(e.target.value),
                   }))
                 }
-                min="0.1"
+                min="0"
                 max="5.0"
-                step="0.1"
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                step="0.01"
+                className="w-full px-3 py-1 bg-neutral-700 border border-neutral-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              <div className="text-xs text-neutral-400 mt-1">
+                {scanParams.dwell_time === 0
+                  ? "⚠️ No dwell time may cause frequency settling issues"
+                  : "Time spent on each frequency step"}
+              </div>
             </div>
           </div>
-          <div className="mt-4 flex gap-4">
+          <div className="flex gap-4">
             <button
               onClick={updateScanParams}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-md font-medium transition-colors"
+              className="px-6 py-2 bg-blue-700 hover:bg-blue-900 rounded-md font-medium transition-colors cursor-pointer"
             >
               Update Parameters
             </button>
@@ -318,8 +316,8 @@ export default function Home() {
               onClick={toggleStreaming}
               className={`px-6 py-2 rounded-md font-medium transition-colors ${
                 isStreaming
-                  ? "bg-red-600 hover:bg-red-700"
-                  : "bg-green-600 hover:bg-green-700"
+                  ? "bg-red-700 hover:bg-red-900"
+                  : "bg-green-700 hover:bg-green-900"
               }`}
             >
               {isStreaming ? "Stop Streaming" : "Start Streaming"}
@@ -328,7 +326,7 @@ export default function Home() {
         </div>
 
         {/* Spectrum Plot */}
-        <div className="bg-gray-800 rounded-lg p-6">
+        <div className="bg-neutral-800 rounded-lg">
           <div className="h-96 w-full">
             {connectionStatus === "connected" && spectrumData ? (
               <Plot
@@ -336,17 +334,18 @@ export default function Home() {
                 layout={plotLayout}
                 config={plotConfig}
                 style={{ width: "100%", height: "100%" }}
+                className="rounded-lg overflow-hidden"
                 useResizeHandler={true}
               />
             ) : (
-              <div className="flex items-center justify-center h-full bg-gray-700 rounded-lg">
+              <div className="flex items-center justify-center h-full bg-neutral-700 rounded-lg">
                 <div className="text-center">
-                  <div className="text-gray-400 text-lg mb-2">
+                  <div className="text-neutral-400 text-lg mb-2">
                     {connectionStatus === "connecting"
                       ? "Connecting to backend..."
                       : "No stream from backend"}
                   </div>
-                  <div className="text-gray-500 text-sm">
+                  <div className="text-neutral-500 text-sm">
                     {connectionStatus === "disconnected" &&
                       "Check if the backend server is running"}
                   </div>
@@ -358,23 +357,23 @@ export default function Home() {
 
         {/* Data Info */}
         {spectrumData && (
-          <div className="mt-4 bg-gray-800 rounded-lg p-4">
+          <div className="mt-4 bg-neutral-800 rounded-lg p-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
               <div>
-                <span className="text-gray-400">Data Points:</span>
+                <span className="text-neutral-400">Data Points:</span>
                 <span className="ml-2 font-mono">
                   {spectrumData.frequencies.length}
                 </span>
               </div>
               <div>
-                <span className="text-gray-400">Frequency Range:</span>
+                <span className="text-neutral-400">Frequency Range:</span>
                 <span className="ml-2 font-mono">
                   {formatFrequency(Math.min(...spectrumData.frequencies))} -{" "}
                   {formatFrequency(Math.max(...spectrumData.frequencies))}
                 </span>
               </div>
               <div>
-                <span className="text-gray-400">Power Range:</span>
+                <span className="text-neutral-400">Power Range:</span>
                 <span className="ml-2 font-mono">
                   {Math.min(...spectrumData.power_spectrum).toFixed(1)} to{" "}
                   {Math.max(...spectrumData.power_spectrum).toFixed(1)} dB
